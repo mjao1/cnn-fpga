@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-LeNet-5 Training Script for MNIST Digit Recognition
----------------------------------------------------
-This script trains a LeNet-5 CNN on the MNIST dataset and exports
+LeNet-5 Training Script for MNIST Digit Recognition:
+Trains a LeNet-5 CNN on the MNIST dataset and exports
 the weights in a format suitable for FPGA implementation.
 """
 
@@ -104,7 +103,10 @@ def export_weights_to_verilog(model, layer_names=None):
                         for kw in range(k_w):
                             kernel_idx = kh * k_w + kw
                             weight = quantized_weights[kh, kw, 0, oc]  # Assuming in_c = 1 for first layer
-                            f.write(f"            {{8'd{oc}, 8'd{kernel_idx}}}: weight = 8'sd{weight};\n")
+                            if weight < 0:
+                                f.write(f"            {{8'd{oc}, 8'd{kernel_idx}}}: weight = -8'sd{abs(weight)};\n")
+                            else:
+                                f.write(f"            {{8'd{oc}, 8'd{kernel_idx}}}: weight = 8'sd{weight};\n")
                 
                 f.write("            default: weight = 8'sd0;\n")
                 f.write("        endcase\n")
@@ -127,7 +129,10 @@ def export_weights_to_verilog(model, layer_names=None):
                     
                     for oc in range(out_c):
                         bias = quantized_biases[oc]
-                        f.write(f"            8'd{oc}: bias = 8'sd{bias};\n")
+                        if bias < 0:
+                            f.write(f"            8'd{oc}: bias = -8'sd{abs(bias)};\n")
+                        else:
+                            f.write(f"            8'd{oc}: bias = 8'sd{bias};\n")
                     
                     f.write("            default: bias = 8'sd0;\n")
                     f.write("        endcase\n")
@@ -158,7 +163,10 @@ def export_weights_to_verilog(model, layer_names=None):
                     for i in range(in_features):
                         if entry_count < max_entries:
                             weight = quantized_weights[i, o]
-                            f.write(f"            {{8'd{o}, 16'd{i}}}: weight = 8'sd{weight};\n")
+                            if weight < 0:
+                                f.write(f"            {{8'd{o}, 16'd{i}}}: weight = -8'sd{abs(weight)};\n")
+                            else:
+                                f.write(f"            {{8'd{o}, 16'd{i}}}: weight = 8'sd{weight};\n")
                             entry_count += 1
                 
                 if entry_count >= max_entries:
@@ -185,7 +193,10 @@ def export_weights_to_verilog(model, layer_names=None):
                     
                     for o in range(out_features):
                         bias = quantized_biases[o]
-                        f.write(f"            8'd{o}: bias = 8'sd{bias};\n")
+                        if bias < 0:
+                            f.write(f"            8'd{o}: bias = -8'sd{abs(bias)};\n")
+                        else:
+                            f.write(f"            8'd{o}: bias = 8'sd{bias};\n")
                     
                     f.write("            default: bias = 8'sd0;\n")
                     f.write("        endcase\n")
