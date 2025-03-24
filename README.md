@@ -28,7 +28,7 @@ cnn-fpga/
    - First pooling layer
    - Second convolutional layer (16 filters)
    - Second pooling layer
-   - Fully connected layers (120 → 84 → 256 neurons)
+   - Fully connected layers (256 → 120 → 84 → 10 neurons)
 
 2. Create inference pipeline:
    - Connect all layers
