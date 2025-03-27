@@ -28,8 +28,8 @@ The implementation follows the LeNet-5 architecture:
 - **Max Pooling**: 2×2 max pooling with stride 2, handles signed values correctly
 - **Convolution**: 5×5 convolution with 5-stage pipeline, saturation, and bias addition
 - **Conv Layer 1**: First convolutional layer with 6 filters (28×28 → 24×24)
-- **Conv Layer 2**: Second convolutional layer with 16 filters (12×12 → 8×8)
 - **Pool Layer 1**: First pooling layer (24×24 → 12×12)
+- **Conv Layer 2**: Second convolutional layer with 16 filters (12×12 → 8×8)
 - **Pool Layer 2**: Second pooling layer (8×8 → 4×4)
 - **Weight Loader**: Module to access pre-trained weights and biases across all layers
 
