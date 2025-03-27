@@ -38,7 +38,26 @@ module tb_conv_layer_1;
     reg [DATA_WIDTH-1:0] test_image [0:IMG_HEIGHT-1][0:IMG_WIDTH-1];
     reg [DATA_WIDTH-1:0] expected_output [0:NUM_FILTERS-1][0:OUT_HEIGHT-1][0:OUT_WIDTH-1];
     
-    integer i, j, k;
+    integer i, j, k, m;
+    integer ii, mm, sum;
+    integer error_count = 0;
+    integer total_tests = 0;
+    
+    localparam WEIGHT_LOAD_CYCLES = (NUM_FILTERS * (KERNEL_SIZE*KERNEL_SIZE + 1)) + 10; // Extra cycles for safety
+    
+    wire [1:0] state_debug;
+    wire [7:0] current_filter_debug;
+    wire [7:0] current_kernel_debug;
+    wire load_bias_debug;
+    wire signed [DATA_WIDTH-1:0] loaded_weight_debug;
+    wire signed [DATA_WIDTH-1:0] loaded_bias_debug;
+    
+    wire window_valid_debug;
+    wire [DATA_WIDTH-1:0] window_data_debug [0:KERNEL_SIZE-1][0:KERNEL_SIZE-1];
+    
+    wire signed [DATA_WIDTH-1:0] weight_debug [0:NUM_FILTERS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
+    wire signed [DATA_WIDTH-1:0] bias_debug [0:NUM_FILTERS-1];
+    wire signed [19:0] acc_stage5_debug [0:NUM_FILTERS-1];
     
     conv_layer_1 #(
         .IMG_WIDTH(IMG_WIDTH),
@@ -66,6 +85,31 @@ module tb_conv_layer_1;
         .y_out(y_out)
     );
     
+    assign state_debug = uut.state;
+    assign current_filter_debug = uut.current_filter;
+    assign current_kernel_debug = uut.current_kernel;
+    assign load_bias_debug = uut.load_bias;
+    assign loaded_weight_debug = uut.loaded_weight;
+    assign loaded_bias_debug = uut.loaded_bias;
+    assign window_valid_debug = uut.window_valid;
+    
+    genvar gi, gj, gf, gk;
+    generate
+        for (gi = 0; gi < KERNEL_SIZE; gi = gi + 1) begin
+            for (gj = 0; gj < KERNEL_SIZE; gj = gj + 1) begin
+                assign window_data_debug[gi][gj] = uut.window[gi][gj];
+            end
+        end
+        
+        for (gf = 0; gf < NUM_FILTERS; gf = gf + 1) begin
+            assign bias_debug[gf] = uut.bias[gf];
+            assign acc_stage5_debug[gf] = uut.conv_units[gf].conv_inst.acc_stage5;
+            for (gk = 0; gk < KERNEL_SIZE*KERNEL_SIZE; gk = gk + 1) begin
+                assign weight_debug[gf][gk] = uut.weight[gf][gk];
+            end
+        end
+    endgenerate
+    
     initial begin
         clk = 0;
         forever #(CLK_PERIOD/2) clk = ~clk;
@@ -80,49 +124,46 @@ module tb_conv_layer_1;
         $display("\n=== Convolutional Layer 1 Testbench ===");
         $display("Testing 6 filters on a %0dx%0d input image", IMG_WIDTH, IMG_HEIGHT);
         $display("Output feature maps will be %0dx%0d", OUT_WIDTH, OUT_HEIGHT);
+        $display("Weight loading will take approximately %0d cycles", WEIGHT_LOAD_CYCLES);
     end
     
     // Define test patterns
     initial begin
-        // Initialize test image with zeros
         for (i = 0; i < IMG_HEIGHT; i = i + 1) begin
             for (j = 0; j < IMG_WIDTH; j = j + 1) begin
                 test_image[i][j] = 8'd0;
             end
         end
         
-        // Create a simple test pattern - horizontal line in the middle
-        for (j = 0; j < IMG_WIDTH; j = j + 1) begin
-            test_image[14][j] = 8'd100;
+        // Create simple MNIST-like digit (7)
+        for (j = 8; j < 20; j = j + 1) begin
+            test_image[8][j] = 8'd200;
         end
         
-        // Create a vertical line
+        for (i = 9; i < 20; i = i + 1) begin
+            test_image[i][20 - (i - 9) / 2] = 8'd200;
+        end
+
+        // Add noise
+        test_image[10][15] = 8'd50;
+        test_image[15][10] = 8'd50;
+        test_image[18][18] = 8'd50;
+        
+        // Print test image pattern
+        $display("\n=== Test Image Pattern ===");
         for (i = 0; i < IMG_HEIGHT; i = i + 1) begin
-            test_image[i][14] = 8'd100;
-        end
-        
-        // Create a diagonal line (45 degrees)
-        for (i = 0; i < IMG_HEIGHT; i = i + 1) begin
-            if (i < IMG_WIDTH) begin
-                test_image[i][i] = 8'd100;
+            for (j = 0; j < IMG_WIDTH; j = j + 1) begin
+                if (test_image[i][j] > 0) begin
+                    $write("%3d ", test_image[i][j]);
+                end else begin
+                    $write("  . ");
+                end
             end
-        end
-        
-        // Create a diagonal line (135 degrees)
-        for (i = 0; i < IMG_HEIGHT; i = i + 1) begin
-            if ((IMG_WIDTH - 1 - i) >= 0) begin
-                test_image[i][IMG_WIDTH - 1 - i] = 8'd100;
-            end
-        end
-        
-        // Add a small square in the center (blob)
-        for (i = 12; i < 16; i = i + 1) begin
-            for (j = 12; j < 16; j = j + 1) begin
-                test_image[i][j] = 8'd100;
-            end
+            $write("\n");
         end
     end
     
+    // Test
     initial begin
         rst = 1;
         valid_in = 0;
@@ -130,79 +171,135 @@ module tb_conv_layer_1;
         x_in = 0;
         y_in = 0;
         
-        #(CLK_PERIOD * 5);
+        repeat (5) @(posedge clk);
         rst = 0;
-        #(CLK_PERIOD * 2);
         
-        // Feed the test image row by row, column by column
+        $display("\n=== Weight Loading Process ===");
+        fork
+            begin
+                repeat (WEIGHT_LOAD_CYCLES) begin
+                    @(posedge clk);
+                    if (state_debug != 2'b10) begin
+                        $display("Weight loading state: %0d, Filter: %0d, Kernel: %0d, Load bias: %0d, Weight: %0d, Bias: %0d",
+                                 state_debug, current_filter_debug, current_kernel_debug, 
+                                 load_bias_debug, $signed(loaded_weight_debug), $signed(loaded_bias_debug));
+                    end
+                end
+            end
+            
+            begin
+                // Wait for state machine to enter RUNNING state
+                wait(state_debug == 2'b10);
+                $display("\n=== Weight Loading Complete ===");
+                
+                // Dump all loaded weights for verification
+                $display("\n=== Loaded Filter Weights ===");
+                for (i = 0; i < NUM_FILTERS; i = i + 1) begin
+                    $display("Filter %0d bias: %0d", i, $signed(bias_debug[i]));
+                    $display("Filter %0d weights:", i);
+                    for (j = 0; j < KERNEL_SIZE; j = j + 1) begin
+                        $write("  ");
+                        for (k = 0; k < KERNEL_SIZE; k = k + 1) begin
+                            $write("%4d ", $signed(weight_debug[i][j*KERNEL_SIZE+k]));
+                        end
+                        $write("\n");
+                    end
+                end
+            end
+        join
+        
+        $display("\nStarting image processing...");
+        
+        // Feed image data
         for (i = 0; i < IMG_HEIGHT; i = i + 1) begin
             for (j = 0; j < IMG_WIDTH; j = j + 1) begin
                 valid_in = 1;
                 data_in = test_image[i][j];
                 x_in = j;
                 y_in = i;
-                #(CLK_PERIOD);
+                
+                // Debug window content at specific positions
+                if ((i >= 8 && i <= 10) && (j >= 8 && j <= 10)) begin
+                    @(posedge clk);
+                    #1;
+                    $display("\n=== Window at position (%0d,%0d) ===", j, i);
+                    $display("Window Valid: %0d", window_valid_debug);
+                    
+                    // Print window contents
+                    for (k = 0; k < KERNEL_SIZE; k = k + 1) begin
+                        $write("  ");
+                        for (m = 0; m < KERNEL_SIZE; m = m + 1) begin
+                            $write("%3d ", window_data_debug[k][m]);
+                        end
+                        $write("\n");
+                    end
+                    
+                    // Add a print of expected convolution results for this window
+                    if (window_valid_debug) begin
+                        $display("Expected convolution results for this window position:");
+                        for (k = 0; k < NUM_FILTERS; k = k + 1) begin
+                            sum = 0;
+                            // Manual convolution calculation for filter k
+                            for (ii = 0; ii < KERNEL_SIZE; ii = ii + 1) begin
+                                for (mm = 0; mm < KERNEL_SIZE; mm = mm + 1) begin
+                                    sum = sum + $signed(window_data_debug[ii][mm]) * $signed(weight_debug[k][ii*KERNEL_SIZE+mm]);
+                                end
+                            end
+                            sum = sum + $signed(bias_debug[k]);
+                            // Saturation
+                            if (sum > 127) sum = 127;
+                            if (sum < -128) sum = -128;
+                            $display("  Filter %0d: Manual calc result = %0d", k, sum);
+                        end
+                    end
+                end else begin
+                    @(posedge clk);
+                end
             end
         end
         
         valid_in = 0;
         
-        #(CLK_PERIOD * 50);
+        repeat (IMG_WIDTH + KERNEL_SIZE*2) @(posedge clk);
         
-        $display("Simulation completed!");
-        $finish;
+        $display("\nTest completed");
     end
     
-    always @(posedge clk) begin
-        if (valid_out) begin
-            if ((x_out < 5 && y_out < 5) || 
-                (x_out > OUT_WIDTH-5 && y_out < 5) || 
-                (x_out < 5 && y_out > OUT_HEIGHT-5) || 
-                (x_out > OUT_WIDTH-5 && y_out > OUT_HEIGHT-5) ||
-                (x_out == 12 && y_out == 12)) begin
+    integer output_count;
+    initial begin
+        output_count = 0;
+        @(posedge valid_out);
+        $display("First output detected at time %0t", $time);
+        
+        forever begin
+            @(posedge clk);
+            if (valid_out) begin
+                output_count = output_count + 1;
                 
-                $display("\n--- Output at position [%0d, %0d] ---", x_out, y_out);
-                for (k = 0; k < NUM_FILTERS; k = k + 1) begin
-                    $display("  Filter %0d: %0d", k, $signed(data_out_array[k]));
-                end
-            end
-            
-            if (x_out == OUT_WIDTH-1 && y_out % 4 == 0) begin
-                $display("Processing row %0d of output complete", y_out);
-            end
-            
-            if (x_out == OUT_WIDTH-1 && y_out == OUT_HEIGHT-1) begin
-                $display("\n=== Convolutional Layer Test Complete ===");
-                $display("Successfully generated %0d feature maps of size %0dx%0d", 
-                         NUM_FILTERS, OUT_WIDTH, OUT_HEIGHT);
-                
-                $display("\nSample outputs from corners of each feature map:");
-                for (k = 0; k < NUM_FILTERS; k = k + 1) begin
-                    $display("Filter %0d:", k);
-                    $display("  Top-left: %0d", $signed(data_out_array[k]));
-                    // Note: We don't actually have values from other positions
-                    // since we're only checking the last position,
-                    // real implementation will need to store results.
+                if (output_count < 20 || (x_out % 8 == 0 && y_out % 8 == 0)) begin
+                    $display("Output at (%0d,%0d): Filter0=%0d, Filter1=%0d, Filter2=%0d, Filter3=%0d, Filter4=%0d, Filter5=%0d",
+                        x_out, y_out, 
+                        $signed(data_out_0), $signed(data_out_1), $signed(data_out_2),
+                        $signed(data_out_3), $signed(data_out_4), $signed(data_out_5)
+                    );
+                    
+                    $display("  Accumulators: F0=%0d, F1=%0d, F2=%0d, F3=%0d, F4=%0d, F5=%0d",
+                        $signed(acc_stage5_debug[0]), $signed(acc_stage5_debug[1]), 
+                        $signed(acc_stage5_debug[2]), $signed(acc_stage5_debug[3]),
+                        $signed(acc_stage5_debug[4]), $signed(acc_stage5_debug[5])
+                    );
+                    
+                    if (($signed(data_out_0) == $signed(bias_debug[0])) && 
+                        ($signed(data_out_1) == $signed(bias_debug[1])) &&
+                        ($signed(data_out_2) == $signed(bias_debug[2])) &&
+                        ($signed(data_out_3) == $signed(bias_debug[3])) &&
+                        ($signed(data_out_4) == $signed(bias_debug[4])) &&
+                        ($signed(data_out_5) == $signed(bias_debug[5]))) begin
+                        $display("  WARNING: Outputs exactly match bias values!");
+                    end
                 end
             end
         end
-    end
-    
-    initial begin
-        $display("Test pattern information:");
-        $display("- Horizontal line at y=14");
-        $display("- Vertical line at x=14");
-        $display("- Diagonal line (45 degrees) from top-left to bottom-right");
-        $display("- Diagonal line (135 degrees) from top-right to bottom-left");
-        $display("- Square blob in the center (12,12) to (15,15)");
-        
-        $display("\nFilter descriptions:");
-        $display("- Filter 0: Horizontal edge detector");
-        $display("- Filter 1: Vertical edge detector");
-        $display("- Filter 2: 45-degree diagonal detector");
-        $display("- Filter 3: 135-degree diagonal detector");
-        $display("- Filter 4: Blob detector");
-        $display("- Filter 5: Identity filter (passes center pixel)");
     end
 
 endmodule 
