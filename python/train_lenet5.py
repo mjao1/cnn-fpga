@@ -212,7 +212,7 @@ def visualize_model(model, history):
     for i in range(10):
         plt.subplot(2, 5, i+1)
         plt.imshow(x_test[i].reshape(28, 28), cmap='gray')
-        plt.title(f'True: {np.argmax(y_test[i])}\nPred: {predicted_classes[i]}')
+        plt.title(f'True: {y_test[i]}\nPred: {predicted_classes[i]}')  # Use raw label directly
         plt.axis('off')
     
     plt.tight_layout()

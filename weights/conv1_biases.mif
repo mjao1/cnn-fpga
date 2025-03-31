@@ -1,12 +1,14 @@
+// Biases for conv2d
+// Quantization scale: 1766.583350684122
 DEPTH = 6;
 WIDTH = 8;
 ADDRESS_RADIX = HEX;
 DATA_RADIX = DEC;
 CONTENT BEGIN
-0000 : -26;
-0001 : -93;
-0002 : -42;
-0003 : -11;
-0004 : 94;
-0005 : -127;
+0000 : 127;
+0001 : -92;
+0002 : -91;
+0003 : -42;
+0004 : -65;
+0005 : -58;
 END;
