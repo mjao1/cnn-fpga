@@ -1,6 +1,6 @@
 # cnn-fpga
 ## Project Overview
-This project implements a real-time handwritten digit recognition system using a LeNet-5 Convolutional Neural Network architecture on an Artix-7 FPGA. The system is trained on the MNIST dataset and optimized for hardware acceleration.
+This project implements a LeNet-5 Convolutional Neural Network (CNN) architecture created by RTL Verilog and designed for for a real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for hardware acceleration.
 
 ## Architecture Overview
 
