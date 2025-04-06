@@ -1,5 +1,5 @@
-// Weights for conv2d, Shape: (5, 5, 1, 6)
-// Quantization scale: 301.93209772101255
+-- Weights for conv2d, Shape: (5, 5, 1, 6)
+-- Quantization scale: 301.93209772101255
 DEPTH = 150;
 WIDTH = 8;
 ADDRESS_RADIX = HEX;

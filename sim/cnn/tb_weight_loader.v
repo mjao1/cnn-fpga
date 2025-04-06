@@ -2,29 +2,33 @@
 
 module tb_weight_loader();
     reg clk;
-    reg rst_n;
+    reg rst;
     
     reg [7:0] layer_select;
     reg [7:0] filter_idx;
-    reg [7:0] kernel_idx;
+    reg [7:0] in_channel;
+    reg [7:0] kernel_row;
+    reg [7:0] kernel_col;
     reg [15:0] input_idx;
-    reg [7:0] output_idx;
+    reg [15:0] neuron_idx;
     
-    wire signed [7:0] weight;
-    wire signed [7:0] bias;
+    wire [7:0] weight_out;
+    wire [7:0] bias_out;
     
     weight_loader #(
         .DATA_WIDTH(8)
     ) uut (
         .clk(clk),
-        .rst_n(rst_n),
+        .rst(rst),
         .layer_select(layer_select),
         .filter_idx(filter_idx),
-        .kernel_idx(kernel_idx),
+        .in_channel(in_channel),
+        .kernel_row(kernel_row),
+        .kernel_col(kernel_col),
         .input_idx(input_idx),
-        .output_idx(output_idx),
-        .weight(weight),
-        .bias(bias)
+        .neuron_idx(neuron_idx),
+        .weight_out(weight_out),
+        .bias_out(bias_out)
     );
     
     initial begin
@@ -33,56 +37,64 @@ module tb_weight_loader();
     end
     
     initial begin
-        rst_n = 0;
+        rst = 1;
         layer_select = 0;
         filter_idx = 0;
-        kernel_idx = 0;
+        in_channel = 0;
+        kernel_row = 0;
+        kernel_col = 0;
         input_idx = 0;
-        output_idx = 0;
+        neuron_idx = 0;
         
-        #20 rst_n = 1;
+        #20 rst = 0;
         
         #20;
         
         // Test Case 1: First conv layer, filter 0, center of kernel
         layer_select = 8'd0;
         filter_idx = 8'd0;
-        kernel_idx = 8'd12;
+        in_channel = 8'd0;
+        kernel_row = 8'd2;  // Center row
+        kernel_col = 8'd2;  // Center col
         #10;
-        $display("Conv1 - Filter 0, Center Weight: %d, Bias: %d", weight, bias);
+        $display("Conv1 - Filter 0, Center Weight: %d, Bias: %d", weight_out, bias_out);
         
         // Test Case 2: First conv layer, filter 1, top-left of kernel
         filter_idx = 8'd1;
-        kernel_idx = 8'd0;
+        kernel_row = 8'd0;  // Top row
+        kernel_col = 8'd0;  // Left col
         #10;
-        $display("Conv1 - Filter 1, Top-Left Weight: %d, Bias: %d", weight, bias);
+        $display("Conv1 - Filter 1, Top-Left Weight: %d, Bias: %d", weight_out, bias_out);
         
         // Test Case 3: First conv layer, filter 2, bottom-right of kernel
         filter_idx = 8'd2;
-        kernel_idx = 8'd24;
+        kernel_row = 8'd4;  // Bottom row
+        kernel_col = 8'd4;  // Right col
         #10;
-        $display("Conv1 - Filter 2, Bottom-Right Weight: %d, Bias: %d", weight, bias);
+        $display("Conv1 - Filter 2, Bottom-Right Weight: %d, Bias: %d", weight_out, bias_out);
         
-        // Test Case 4: Second conv layer
+        // Test Case 4: Second conv layer with multiple input channels
         layer_select = 8'd1;
         filter_idx = 8'd0;
-        kernel_idx = 8'd12;
+        in_channel = 8'd2;  // Testing with input channel 2
+        kernel_row = 8'd2;  // Center row
+        kernel_col = 8'd2;  // Center col
         #10;
-        $display("Conv2 - Filter 0, Center Weight: %d, Bias: %d", weight, bias);
+        $display("Conv2 - Filter 0, Channel 2, Center Weight: %d, Bias: %d", weight_out, bias_out);
         
-        // Test Case 5: First fully connected layer
+        // Test Case 5: First fully connected layer (FC1)
         layer_select = 8'd2;
         input_idx = 16'd50;
-        output_idx = 8'd10;
+        neuron_idx = 16'd10;
         #10;
-        $display("FC1 - Input 50, Output 10 - Weight: %d, Bias: %d", weight, bias);
+        $display("FC1 - Input 50, Neuron 10 - Weight: %d, Bias: %d", weight_out, bias_out);
         
-        // Test Case 6: Output layer
+        // Test Case 6: Output layer (FC3)
         layer_select = 8'd4;
         input_idx = 16'd30;
-        output_idx = 8'd5;
+        neuron_idx = 16'd5;  // Class 5
         #10;
-        $display("Output Layer - Class 5 - Weight from input 30: %d, Bias: %d", weight, bias);
+        $display("FC3 (Output) - Class 5 - Weight from input 30: %d, Bias: %d", weight_out, bias_out);
         
         #50;
         $display("Testbench completed");
@@ -90,8 +102,9 @@ module tb_weight_loader();
     end
     
     initial begin
-        $monitor("Time=%t, Layer=%d, Filter/Output=%d, Kernel/Input=%d, Weight=%d, Bias=%d",
-                 $time, layer_select, filter_idx, kernel_idx, weight, bias);
+        $monitor("Time=%t Layer=%d Filter=%d Channel=%d Row=%d Col=%d Input=%d Neuron=%d Weight=%d Bias=%d",
+                 $time, layer_select, filter_idx, in_channel, kernel_row, kernel_col, 
+                 input_idx, neuron_idx, weight_out, bias_out);
     end
 
 endmodule

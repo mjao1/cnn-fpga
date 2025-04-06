@@ -1,5 +1,5 @@
-// Weights for dense_1, Shape: (120, 84)
-// Quantization scale: 245.05914456479158
+-- Weights for dense_1, Shape: (120, 84)
+-- Quantization scale: 245.05914456479158
 DEPTH = 10080;
 WIDTH = 8;
 ADDRESS_RADIX = HEX;

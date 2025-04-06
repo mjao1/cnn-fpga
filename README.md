@@ -2,6 +2,8 @@
 ## Project Overview
 This project implements a LeNet-5 Convolutional Neural Network (CNN) architecture created by RTL Verilog and designed for for a real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for hardware acceleration.
 
+<img src="./python/plots/predictions.png" width="70%" alt="MNIST Recognition">
+
 ## Architecture Overview
 
 The implementation follows the LeNet-5 architecture:

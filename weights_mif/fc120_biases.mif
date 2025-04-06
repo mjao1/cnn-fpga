@@ -1,5 +1,5 @@
-// Biases for dense_1
-// Quantization scale: 1676.125651225398
+-- Biases for dense_1
+-- Quantization scale: 1676.125651225398
 DEPTH = 84;
 WIDTH = 8;
 ADDRESS_RADIX = HEX;

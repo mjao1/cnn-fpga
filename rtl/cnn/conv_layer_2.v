@@ -84,14 +84,16 @@ module conv_layer_2 #(
         .DATA_WIDTH(DATA_WIDTH)
     ) weight_loader_inst (
         .clk(clk),
-        .rst_n(~rst),
+        .rst(rst),
         .layer_select(8'd1),
         .filter_idx(current_filter),
-        .kernel_idx(current_kernel),
-        .input_idx({8'd0, current_channel}),
-        .output_idx(8'd0),
-        .weight(loaded_weight),
-        .bias(loaded_bias)
+        .in_channel(current_channel),
+        .kernel_row(current_kernel / KERNEL_SIZE),
+        .kernel_col(current_kernel % KERNEL_SIZE),
+        .input_idx(16'd0),
+        .neuron_idx(16'd0),
+        .weight_out(loaded_weight),
+        .bias_out(loaded_bias)
     );
     
     // Weight loading state machine
