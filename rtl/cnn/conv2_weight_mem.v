@@ -29,7 +29,7 @@ module conv2_weight_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("conv2_weights.mif")
+        .MEM_INIT_FILE("conv2_weights.mem")
     ) weight_mem (
         .clk(clk),
         .rst(rst),

@@ -2,7 +2,7 @@
 """
 LeNet-5 Training Script for MNIST Digit Recognition:
 Trains a LeNet-5 CNN on the MNIST dataset and exports
-the weights in MIF format for BRAM initialization.
+the weights in MEM format for BRAM initialization.
 """
 
 import os
@@ -11,7 +11,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 import matplotlib.pyplot as plt
 
-os.makedirs('weights', exist_ok=True)
+os.makedirs('weights_mem', exist_ok=True)
 os.makedirs('python/plots', exist_ok=True)
 
 def create_lenet5_model():
@@ -59,10 +59,18 @@ def quantize_weights(weights, bits=8):
     
     return quantized, scale
 
-def export_weights_to_mif(model):
+def export_weights_to_mem(model):
     """
-    Export weights as .mif for BRAM loading
+    Export weights as .mem files for Vivado BRAM initialization
     """
+    layer_to_module_name = {
+        0: "conv1",
+        2: "conv2",
+        5: "fc1",
+        6: "fc2",
+        7: "fc3"
+    }
+    
     for i, layer in enumerate(model.layers):
         weights = layer.get_weights()
         
@@ -72,93 +80,66 @@ def export_weights_to_mif(model):
         weight_values = weights[0]
         bias_values = weights[1] if len(weights) > 1 else None
         
+        # Skip pooling and other layers we don't need weights for
+        if i not in layer_to_module_name:
+            continue
+            
+        # Use module name for the weight files
+        module_name = layer_to_module_name[i]
+        
         quantized_weights, weight_scale = quantize_weights(weight_values)
         
         if isinstance(layer, layers.Conv2D):
             k_h, k_w, in_c, out_c = quantized_weights.shape
             
             # Export weights
-            mif_file = f"weights/conv{i+1}_weights.mif"
-            with open(mif_file, 'w') as f:
-                f.write(f"// Weights for {layer.name}, Shape: {quantized_weights.shape}\n")
-                f.write(f"// Quantization scale: {weight_scale}\n")
-                f.write("DEPTH = {};\n".format(k_h * k_w * in_c * out_c))
-                f.write("WIDTH = 8;\n")
-                f.write("ADDRESS_RADIX = HEX;\n")
-                f.write("DATA_RADIX = DEC;\n")
-                f.write("CONTENT BEGIN\n")
-                
-                addr = 0
+            mem_file = f"weights_mem/{module_name}_weights.mem"
+            with open(mem_file, 'w') as f:
                 for oc in range(out_c):
                     for ic in range(in_c):
                         for kh in range(k_h):
                             for kw in range(k_w):
                                 weight = int(quantized_weights[kh, kw, ic, oc])
-                                f.write("{:04X} : {};\n".format(addr, weight))
-                                addr += 1
-                
-                f.write("END;\n")
+                                if weight < 0:
+                                    weight = 256 + weight  # 2's complement for 8-bit
+                                f.write("{:02X}\n".format(weight & 0xFF))
             
             # Export biases
             if bias_values is not None:
                 quantized_biases, bias_scale = quantize_weights(bias_values)
-                bias_mif = f"weights/conv{i+1}_biases.mif"
+                bias_mem = f"weights_mem/{module_name}_biases.mem"
                 
-                with open(bias_mif, 'w') as f:
-                    f.write(f"// Biases for {layer.name}\n")
-                    f.write(f"// Quantization scale: {bias_scale}\n")
-                    f.write("DEPTH = {};\n".format(len(quantized_biases)))
-                    f.write("WIDTH = 8;\n")
-                    f.write("ADDRESS_RADIX = HEX;\n")
-                    f.write("DATA_RADIX = DEC;\n")
-                    f.write("CONTENT BEGIN\n")
-                    
-                    for idx, bias in enumerate(quantized_biases):
-                        f.write("{:04X} : {};\n".format(idx, int(bias)))
-                    
-                    f.write("END;\n")
+                with open(bias_mem, 'w') as f:
+                    for bias in quantized_biases:
+                        bias_val = int(bias)
+                        if bias_val < 0:
+                            bias_val = 256 + bias_val  # 2's complement for 8-bit
+                        f.write("{:02X}\n".format(bias_val & 0xFF))
         
         elif isinstance(layer, layers.Dense):
             in_features, out_features = quantized_weights.shape
             
             # Export weights
-            mif_file = f"weights/fc{i+1}_weights.mif"
-            with open(mif_file, 'w') as f:
-                f.write(f"// Weights for {layer.name}, Shape: {quantized_weights.shape}\n")
-                f.write(f"// Quantization scale: {weight_scale}\n")
-                f.write("DEPTH = {};\n".format(in_features * out_features))
-                f.write("WIDTH = 8;\n")
-                f.write("ADDRESS_RADIX = HEX;\n")
-                f.write("DATA_RADIX = DEC;\n")
-                f.write("CONTENT BEGIN\n")
-                
-                addr = 0
+            mem_file = f"weights_mem/{module_name}_weights.mem"
+            with open(mem_file, 'w') as f:
                 for o in range(out_features):
                     for i in range(in_features):
                         weight = int(quantized_weights[i, o])
-                        f.write("{:04X} : {};\n".format(addr, weight))
-                        addr += 1
-                
-                f.write("END;\n")
+                        if weight < 0:
+                            weight = 256 + weight  # 2's complement for 8-bit
+                        f.write("{:02X}\n".format(weight & 0xFF))
             
             # Export biases
             if bias_values is not None:
                 quantized_biases, bias_scale = quantize_weights(bias_values)
-                bias_mif = f"weights/fc{i+1}_biases.mif"
+                bias_mem = f"weights_mem/{module_name}_biases.mem"
                 
-                with open(bias_mif, 'w') as f:
-                    f.write(f"// Biases for {layer.name}\n")
-                    f.write(f"// Quantization scale: {bias_scale}\n")
-                    f.write("DEPTH = {};\n".format(len(quantized_biases)))
-                    f.write("WIDTH = 8;\n")
-                    f.write("ADDRESS_RADIX = HEX;\n")
-                    f.write("DATA_RADIX = DEC;\n")
-                    f.write("CONTENT BEGIN\n")
-                    
-                    for idx, bias in enumerate(quantized_biases):
-                        f.write("{:04X} : {};\n".format(idx, int(bias)))
-                    
-                    f.write("END;\n")
+                with open(bias_mem, 'w') as f:
+                    for bias in quantized_biases:
+                        bias_val = int(bias)
+                        if bias_val < 0:
+                            bias_val = 256 + bias_val  # 2's complement for 8-bit
+                        f.write("{:02X}\n".format(bias_val & 0xFF))
 
 def visualize_model(model, history):
     """
@@ -246,13 +227,13 @@ def main():
     test_loss, test_accuracy = model.evaluate(x_test, y_test, verbose=0)
     print(f"Test accuracy: {test_accuracy:.4f}")
     
-    print("Exporting weights to MIF format...")
-    export_weights_to_mif(model)
+    print("Exporting weights to MEM format...")
+    export_weights_to_mem(model)
     
     print("Creating visualization plots...")
     visualize_model(model, history)
     
-    print("Done! Weights have been exported to the 'weights' directory.")
+    print("Done! Weights have been exported to the 'weights_mem' directory.")
 
 if __name__ == '__main__':
     main() 

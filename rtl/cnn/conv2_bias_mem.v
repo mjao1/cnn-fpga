@@ -17,7 +17,7 @@ module conv2_bias_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("conv2_biases.mif")
+        .MEM_INIT_FILE("conv2_biases.mem")
     ) bias_mem (
         .clk(clk),
         .rst(rst),

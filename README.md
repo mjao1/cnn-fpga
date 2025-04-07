@@ -44,7 +44,7 @@ The implementation follows the LeNet-5 architecture:
 cnn-fpga/
 ├── rtl/cnn/          # CNN modules implementation
 ├── sim/cnn/          # Component testbenches
-├── weights/          # Quantized CNN weights (both .v and .mif formats)
+├── weights/          # Quantized CNN weights (mem. format)
 └── python/           # Model training and weight generation
 ```
 

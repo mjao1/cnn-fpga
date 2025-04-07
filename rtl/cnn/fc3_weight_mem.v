@@ -23,7 +23,7 @@ module fc3_weight_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("fc8_weights.mif")
+        .MEM_INIT_FILE("fc3_weights.mem")
     ) weight_mem (
         .clk(clk),
         .rst(rst),

@@ -27,7 +27,7 @@ module bram_weights #(
         
         // Load from MIF
         if (MEM_INIT_FILE != "none") begin
-            $readmemd(MEM_INIT_FILE, mem);
+            $readmemh(MEM_INIT_FILE, mem);
         end
     end
     
