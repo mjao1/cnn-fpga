@@ -1,0 +1,184 @@
+// first fully connected layer
+// Input: 256 flattened neurons from pool_layer_2 (16 channels of 4x4 maps)
+// Output: 120 neurons with ReLU activation
+
+module fc_layer_1 #(
+    parameter IN_FEATURES = 256,
+    parameter OUT_FEATURES = 120,
+    parameter DATA_WIDTH = 8
+)(
+    input wire clk,
+    input wire rst,
+    input wire valid_in,
+    input wire [DATA_WIDTH-1:0] data_in,
+    input wire [7:0] addr_in,
+
+    output reg valid_out,
+    output reg [DATA_WIDTH-1:0] data_out,
+    output reg [7:0] neuron_idx,
+    output reg done_out
+);
+
+    // States
+    localparam IDLE = 3'b000;         // Waiting for input
+    localparam LOAD = 3'b001;         // Loading input features
+    localparam COMPUTE = 3'b010;      // Compute one neuron
+    localparam NEXT_NEURON = 3'b011;  // Move to next neuron
+    localparam DONE = 3'b100;         // All neurons processed
+    
+    reg [2:0] state;
+    reg [7:0] current_neuron;
+    reg [7:0] current_input;
+    
+    // Input buffer
+    reg [DATA_WIDTH-1:0] input_buffer [0:IN_FEATURES-1];
+    reg [IN_FEATURES-1:0] input_valid;
+    
+    reg signed [19:0] accumulator;
+    
+    wire [DATA_WIDTH-1:0] weight;
+    wire [DATA_WIDTH-1:0] bias;
+    
+    wire relu_valid_out;
+    wire [DATA_WIDTH-1:0] relu_data_out;
+    
+    reg [$clog2(IN_FEATURES):0] valid_count;
+    reg process_ready;
+    
+    weight_loader #(
+        .DATA_WIDTH(DATA_WIDTH)
+    ) weight_loader_inst (
+        .clk(clk),
+        .rst(rst),
+        .layer_select(8'd2),          // FC1 layer
+        .filter_idx(8'd0),            // Not used
+        .in_channel(8'd0),            // Not used
+        .kernel_row(8'd0),            // Not used
+        .kernel_col(8'd0),            // Not used
+        .input_idx({8'd0, current_input}),  // Which input feature (0-255)
+        .neuron_idx({8'd0, current_neuron}), // Which output neuron (0-119)
+        .weight_out(weight),
+        .bias_out(bias)
+    );
+    
+    relu relu_inst (
+        .clk(clk),
+        .rst(rst),
+        .valid_in(state == NEXT_NEURON),
+        .data_in(saturate(accumulator)),
+        .valid_out(relu_valid_out),
+        .data_out(relu_data_out)
+    );
+    
+    // Saturation function
+    function signed [7:0] saturate;
+        input signed [19:0] value;
+        begin
+            if (value > 20'sd127)
+                saturate = 8'sd127;
+            else if (value < -20'sd128)
+                saturate = -8'sd128;    
+            else
+                saturate = value[7:0];
+        end
+    endfunction
+    
+    integer i;
+    
+    always @(posedge clk) begin
+        if (rst) begin
+            state <= IDLE;
+            current_neuron <= 8'd0;
+            current_input <= 8'd0;
+            valid_out <= 1'b0;
+            data_out <= 8'd0;
+            neuron_idx <= 8'd0;
+            done_out <= 1'b0;
+            process_ready <= 1'b0;
+            valid_count <= 0;
+            
+            for (i = 0; i < IN_FEATURES; i = i + 1) begin
+                input_buffer[i] <= 8'd0;
+                input_valid[i] <= 1'b0;
+            end
+        end else begin
+            valid_out <= 1'b0;
+            
+            // Process incoming data (can happen in any state)
+            if (valid_in) begin
+                input_buffer[addr_in] <= data_in;
+                input_valid[addr_in] <= 1'b1;
+                
+                // Update count of valid inputs
+                if (!input_valid[addr_in]) begin
+                    valid_count <= valid_count + 1;
+                end
+                
+                // Check if all inputs received
+                if (valid_count == IN_FEATURES - 1 && !input_valid[addr_in]) begin
+                    process_ready <= 1'b1;
+                end
+            end
+            
+            // State machine
+            case (state)
+                IDLE: begin
+                    done_out <= 1'b0;
+                    if (process_ready) begin
+                        current_neuron <= 8'd0;
+                        current_input <= 8'd0;
+                        state <= LOAD;
+                    end
+                end
+                
+                LOAD: begin
+                    accumulator <= {{12{bias[7]}}, bias};
+                    state <= COMPUTE;
+                end
+                
+                COMPUTE: begin
+                    // MAC operation (accumulator + weight * input)
+                    accumulator <= accumulator + $signed(weight) * $signed(input_buffer[current_input]);
+                    
+                    if (current_input == IN_FEATURES - 1) begin
+                        state <= NEXT_NEURON;
+                    end else begin
+                        current_input <= current_input + 1;
+                    end
+                end
+                
+                NEXT_NEURON: begin
+                    if (relu_valid_out) begin
+                        valid_out <= 1'b1;
+                        data_out <= relu_data_out;
+                        neuron_idx <= current_neuron;
+                        
+                        // Move to next neuron or finish
+                        if (current_neuron == OUT_FEATURES - 1) begin
+                            state <= DONE;
+                        end else begin
+                            current_neuron <= current_neuron + 1;
+                            current_input <= 8'd0;
+                            state <= LOAD; // goto LOAD state to get next
+                        end
+                    end
+                end
+                
+                DONE: begin
+                    done_out <= 1'b1;
+                    // Stay in DONE until reset
+                    if (!process_ready) begin
+                        state <= IDLE;
+                        valid_count <= 0;
+                        for (i = 0; i < IN_FEATURES; i = i + 1) begin
+                            input_valid[i] <= 1'b0;
+                        end
+                    end
+                end
+                
+                default: state <= IDLE;
+            endcase
+        end
+    end
+
+endmodule 

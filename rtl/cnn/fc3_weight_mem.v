@@ -1,7 +1,7 @@
 // Memory wrapper for FC3 (output) layer weights
 module fc3_weight_mem #(
     parameter DATA_WIDTH = 8,
-    parameter IN_FEATURES = 120,
+    parameter IN_FEATURES = 84,
     parameter OUT_FEATURES = 10
 )(
     input wire clk,
@@ -12,7 +12,7 @@ module fc3_weight_mem #(
     output wire [DATA_WIDTH-1:0] weight_out
 );
 
-    localparam ADDR_WIDTH = 11;  // ceil(log2(IN_FEATURES * OUT_FEATURES))
+    localparam ADDR_WIDTH = 10;  // ceil(log2(IN_FEATURES * OUT_FEATURES))
     localparam DEPTH = IN_FEATURES * OUT_FEATURES;
     
     // Address based on indices

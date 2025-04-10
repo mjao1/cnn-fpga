@@ -1,7 +1,7 @@
 // Memory wrapper for FC2 layer biases
 module fc2_bias_mem #(
     parameter DATA_WIDTH = 8,
-    parameter NUM_NEURONS = 120
+    parameter NUM_NEURONS = 84
 )(
     input wire clk,
     input wire rst,

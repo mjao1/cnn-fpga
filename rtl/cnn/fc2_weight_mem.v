@@ -1,8 +1,8 @@
 // Memory wrapper for FC2 layer weights
 module fc2_weight_mem #(
     parameter DATA_WIDTH = 8,
-    parameter IN_FEATURES = 256,
-    parameter OUT_FEATURES = 120
+    parameter IN_FEATURES = 120,
+    parameter OUT_FEATURES = 84
 )(
     input wire clk,
     input wire rst,
@@ -12,7 +12,7 @@ module fc2_weight_mem #(
     output wire [DATA_WIDTH-1:0] weight_out
 );
 
-    localparam ADDR_WIDTH = 15;  // ceil(log2(IN_FEATURES * OUT_FEATURES))
+    localparam ADDR_WIDTH = 14;  // ceil(log2(IN_FEATURES * OUT_FEATURES))
     localparam DEPTH = IN_FEATURES * OUT_FEATURES;
     
     // Address based on indices

@@ -1,7 +1,7 @@
 // Memory wrapper for FC1 layer biases
 module fc1_bias_mem #(
     parameter DATA_WIDTH = 8,
-    parameter NUM_NEURONS = 256
+    parameter NUM_NEURONS = 120
 )(
     input wire clk,
     input wire rst,
@@ -10,7 +10,7 @@ module fc1_bias_mem #(
     output wire [DATA_WIDTH-1:0] bias_out
 );
 
-    localparam ADDR_WIDTH = 8;  // ceil(log2(NUM_NEURONS))
+    localparam ADDR_WIDTH = 7;  // ceil(log2(NUM_NEURONS))
     localparam DEPTH = NUM_NEURONS;
     
     bram_weights #(

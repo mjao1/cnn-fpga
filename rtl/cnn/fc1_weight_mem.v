@@ -2,7 +2,7 @@
 module fc1_weight_mem #(
     parameter DATA_WIDTH = 8,
     parameter IN_FEATURES = 256,
-    parameter OUT_FEATURES = 256
+    parameter OUT_FEATURES = 120
 )(
     input wire clk,
     input wire rst,
