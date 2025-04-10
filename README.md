@@ -33,41 +33,35 @@ The implementation follows the LeNet-5 architecture:
 - **Pool Layer 1**: First pooling layer (24×24 → 12×12)
 - **Conv Layer 2**: Second convolutional layer with 16 filters (12×12 → 8×8)
 - **Pool Layer 2**: Second pooling layer (8×8 → 4×4)
+- **Flatten Module**: Converts 16×4×4 feature maps to 256-element vector
+- **FC Layer 1**: First fully connected layer (256 → 120) with ReLU activation
+- **FC Layer 2**: Second fully connected layer (120 → 84) with ReLU activation
+- **FC Layer 3**: Output layer (84 → 10) for digit classification
+- **FC Layers**: Top module integrating all three fully connected layers
 - **Weight Loader**: Module to access pre-trained weights and biases across all layers
 
-### Weight Management (for now)
-- Weights stored in Verilog modules as case statements
+### Weight Management
+- Weights stored in BRAM via memory wrapper modules
 - 8-bit fixed-point quantization
+- Separate memory modules for weights and biases of each layer
 
 ## Project Structure
 ```
 cnn-fpga/
 ├── rtl/cnn/          # CNN modules implementation
 ├── sim/cnn/          # Component testbenches
-├── weights/          # Quantized CNN weights (mem. format)
+├── weights_mem/          # Quantized CNN weights (mem. format)
 └── python/           # Model training and weight generation
 ```
 
 ## Next Steps
-
-1. Implement remaining components:
-   - **Flatten Module**: Convert 16×4×4 feature maps to 256-element vector
-   - **Fully Connected Layers**: Implement FC1, FC2, and FC3 layers
-   - **Top-Level Module**: Connect all components for end-to-end inference
-
-2. Create inference pipeline:
-   - Connect all layers
-   - Implement top control module
-   - Optimize for parallel processing where possible
 
 3. Interface with I/O:
    - Implement interface for touchpad input (eyeing Adafruit 2.8 touchscreen)
    - Connect logic for 7-segment display output
 
 4. Optimize for FPGA resources:
-   - Explore BRAM implementation for weight storage
-   - Implement resource sharing for multipliers
-   - Balance area vs. performance tradeoffs
+   - Fine-tune weight memory implementation
 
 ## Performance
 - Process one 28×28 digit in under 10ms
