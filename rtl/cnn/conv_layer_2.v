@@ -11,8 +11,7 @@ module conv_layer_2 #(
     parameter IN_CHANNELS = 6,    // Number of input channels
     parameter OUT_CHANNELS = 16,  // Number of filters in second layer of LeNet-5
     parameter KERNEL_SIZE = 5,    // Kernel size (5x5)
-    parameter DATA_WIDTH = 8,     // Data width (8-bit fixed point)
-    parameter SHIFT_ACC = 8
+    parameter DATA_WIDTH = 8      // Data width (8-bit fixed point)
 )(
     input wire clk,
     input wire rst,

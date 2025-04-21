@@ -113,6 +113,8 @@ module cnn_top #(
     
     reg [4:0] pool2_valid_count;
     
+    reg conv2_valid_reg;
+    
     // Conv Layer 1 (1x28x28 -> 6x24x24)
     conv_layer_1 #(
         .IMG_WIDTH(IMG_WIDTH),
@@ -174,7 +176,7 @@ module cnn_top #(
     ) conv2 (
         .clk(clk),
         .rst(rst),
-        .valid_in(pool1_valid_out),
+        .valid_in(conv2_valid_reg),
         .data_in(pool1_data_out),
         .x_in(pool1_x_out),
         .y_in(pool1_y_out),
@@ -222,13 +224,6 @@ module cnn_top #(
         .addr_out(flatten_addr_out)
     );
     
-    // FC Layers signals
-    reg fc_start;
-    wire fc_valid_out;
-    wire [DATA_WIDTH-1:0] fc_data_out;
-    wire [3:0] fc_digit_idx;
-    wire fc_done_out;
-    
     // FC Layers (256 -> 120 -> 84 -> 10)
     fc_layers #(
         .FC1_IN_FEATURES(256),
@@ -272,6 +267,7 @@ module cnn_top #(
             max_class_score <= 8'd0;
             pool2_x_reg <= 8'd0;
             pool2_y_reg <= 8'd0;
+            conv2_valid_reg <= 1'b0;
             
             for (i = 0; i < IMG_HEIGHT; i = i + 1) begin
                 for (j = 0; j < IMG_WIDTH; j = j + 1) begin
@@ -287,6 +283,7 @@ module cnn_top #(
             conv1_valid_in <= 1'b0;
             flatten_valid_in <= 1'b0;
             fc_start <= 1'b0;
+            conv2_valid_reg <= 1'b0;
             
             case (state)
                 IDLE: begin
@@ -349,14 +346,16 @@ module cnn_top #(
                 end
                 
                 CONV2: begin
+                    conv2_valid_reg <= 1'b1;
                     if (conv2_valid_out) begin
-                        conv2_count <= conv2_count + 6'd1;
-                    end
-                    if (conv2_count == 6'd64) begin
-                        conv2_count <= 6'd0;
-                        pool2_x_reg <= 8'd0;
-                        pool2_y_reg <= 8'd0;
-                        state <= POOL2; // transition after 64 valid outputs (8x8)
+                        if (conv2_count == 6'd63) begin
+                            conv2_count <= 6'd0;
+                            pool2_x_reg <= 8'd0;
+                            pool2_y_reg <= 8'd0;
+                            state <= POOL2;
+                        end else begin
+                            conv2_count <= conv2_count + 6'd1;
+                        end
                     end
                 end
                 
