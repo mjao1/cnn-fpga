@@ -180,6 +180,23 @@ module conv_layer_1 #(
         end
     endgenerate
     
+    wire [7:0] relu_out [0:NUM_FILTERS-1];
+    wire relu_valid [0:NUM_FILTERS-1];
+    
+    genvar i;
+    generate
+        for(i = 0; i < NUM_FILTERS; i = i + 1) begin: relu_inst_block
+            relu u_relu (
+                .clk(clk),
+                .rst(rst),
+                .valid_in(valid_conv[i]),
+                .data_in(conv_out[i]),
+                .valid_out(relu_valid[i]),
+                .data_out(relu_out[i])
+            );
+        end
+    endgenerate
+    
     always @(posedge clk) begin
         if (rst) begin
             x_count <= 9'd0;
@@ -209,15 +226,15 @@ module conv_layer_1 #(
                 end
             end
         end else begin
-            valid_out <= (state == RUNNING) && valid_conv[0];
+            valid_out <= (state == RUNNING) && relu_valid[0];
             
-            if ((state == RUNNING) && valid_conv[0]) begin
-                data_out_0 <= conv_out[0];
-                data_out_1 <= conv_out[1];
-                data_out_2 <= conv_out[2];
-                data_out_3 <= conv_out[3];
-                data_out_4 <= conv_out[4];
-                data_out_5 <= conv_out[5];
+            if ((state == RUNNING) && relu_valid[0]) begin
+                data_out_0 <= relu_out[0];
+                data_out_1 <= relu_out[1];
+                data_out_2 <= relu_out[2];
+                data_out_3 <= relu_out[3];
+                data_out_4 <= relu_out[4];
+                data_out_5 <= relu_out[5];
                 
                 if (x_out == OUT_WIDTH - 1) begin
                     x_out <= 9'd0;

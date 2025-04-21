@@ -105,7 +105,7 @@ module tb_cnn_top;
         for (i = 0; i < NUM_PIXELS; i = i + 1) begin
             pixel_valid = 1;
             pixel_addr = i;
-            pixel_data = test_image[i] >> 1; // Scale pixel value from [0,255] to [0,127] (MIGHT CHANGE)
+            pixel_data = test_image[i]; // Use full 8-bit pixel value (0-255)
             #(CLK_PERIOD);
             
             if (i % (NUM_PIXELS/10) == 0 && i > 0) begin
