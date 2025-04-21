@@ -1,6 +1,8 @@
 // simple 5x5 convolution module for CNN
 
-module conv_5x5 (
+module conv_5x5 #(
+    parameter SHIFT = 12
+) (
     input wire clk,
     input wire rst,
     input wire valid_in,
@@ -123,7 +125,7 @@ module conv_5x5 (
             
             valid_out <= valid_stage5;
             if (valid_stage5) begin
-                data_out <= saturate(acc_stage5);
+                data_out <= saturate(acc_stage5 >> SHIFT);
             end
         end
     end

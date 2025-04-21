@@ -11,7 +11,8 @@ module conv_layer_2 #(
     parameter IN_CHANNELS = 6,    // Number of input channels
     parameter OUT_CHANNELS = 16,  // Number of filters in second layer of LeNet-5
     parameter KERNEL_SIZE = 5,    // Kernel size (5x5)
-    parameter DATA_WIDTH = 8      // Data width (8-bit fixed point)
+    parameter DATA_WIDTH = 8,     // Data width (8-bit fixed point)
+    parameter SHIFT_ACC = 8
 )(
     input wire clk,
     input wire rst,
@@ -284,7 +285,7 @@ module conv_layer_2 #(
             // Step 3: Saturate and output final results
             else if (acc_phase == 3'd2) begin
                 for (oc = 0; oc < OUT_CHANNELS; oc = oc + 1) begin
-                    data_out_channel[oc] <= saturate(channel_acc[oc]);
+                    data_out_channel[oc] <= saturate(channel_acc[oc] >> SHIFT_ACC);
                 end
                 acc_valid <= 1'b1;
                 acc_phase <= 3'd0;

@@ -5,7 +5,8 @@
 module fc_layer_1 #(
     parameter IN_FEATURES = 256,
     parameter OUT_FEATURES = 120,
-    parameter DATA_WIDTH = 8
+    parameter DATA_WIDTH = 8,
+    parameter SHIFT = 10
 )(
     input wire clk,
     input wire rst,
@@ -65,7 +66,7 @@ module fc_layer_1 #(
         .clk(clk),
         .rst(rst),
         .valid_in(state == NEXT_NEURON),
-        .data_in(saturate(accumulator)),
+        .data_in(saturate(accumulator >> SHIFT)),
         .valid_out(relu_valid_out),
         .data_out(relu_data_out)
     );
@@ -107,15 +108,13 @@ module fc_layer_1 #(
             // Process incoming data (can happen in any state)
             if (valid_in) begin
                 input_buffer[addr_in] <= data_in;
-                input_valid[addr_in] <= 1'b1;
-                
-                // Update count of valid inputs
-                if (!input_valid[addr_in]) begin
+                // If this is the first time receiving data for this address, count it
+                if (input_valid[addr_in] == 1'b0) begin
                     valid_count <= valid_count + 1;
+                    input_valid[addr_in] <= 1'b1;
                 end
-                
-                // Check if all inputs received
-                if (valid_count == IN_FEATURES - 1 && !input_valid[addr_in]) begin
+                // When valid_count reaches IN_FEATURES, assert process_ready
+                if (valid_count + 1 >= IN_FEATURES) begin
                     process_ready <= 1'b1;
                 end
             end

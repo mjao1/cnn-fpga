@@ -5,7 +5,8 @@
 module fc_layer_2 #(
     parameter IN_FEATURES = 120,
     parameter OUT_FEATURES = 84,
-    parameter DATA_WIDTH = 8
+    parameter DATA_WIDTH = 8,
+    parameter SHIFT = 10
 )(
     input wire clk,
     input wire rst,
@@ -64,7 +65,7 @@ module fc_layer_2 #(
         .clk(clk),
         .rst(rst),
         .valid_in(state == NEXT_NEURON),
-        .data_in(saturate(accumulator)),
+        .data_in(saturate(accumulator >> SHIFT)),
         .valid_out(relu_valid_out),
         .data_out(relu_data_out)
     );

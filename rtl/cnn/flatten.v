@@ -13,41 +13,53 @@ module flatten #(
     input wire rst,
     input wire valid_in,
     input wire [(DATA_WIDTH*IN_CHANNELS)-1:0] data_in,  // Packed input from 16 channels
-    input wire [7:0] x_in,                              // x coordinate from feature map
-    input wire [7:0] y_in,                              // y coordinate from feature map
-    input wire [3:0] channel_in,                        // Current channel (0-15)
-    
     output reg valid_out,
     output reg [DATA_WIDTH-1:0] data_out,
     output reg [7:0] addr_out                           // Address in flattened vector (0-255)
 );
 
-    wire [DATA_WIDTH-1:0] channel_data [0:IN_CHANNELS-1];
-    genvar c;
-    generate
-        for (c = 0; c < IN_CHANNELS; c = c + 1) begin : unpack_inputs
-            assign channel_data[c] = data_in[((c+1)*DATA_WIDTH)-1:c*DATA_WIDTH];
-        end
-    endgenerate
+    reg [DATA_WIDTH-1:0] flat_mem [0:OUT_FEATURES-1];
+    
+    reg [3:0] flatten_count;
 
-    // Flattened address
-    wire [7:0] flat_addr = (channel_in * IN_HEIGHT * IN_WIDTH) + (y_in * IN_WIDTH) + x_in;
+    reg [7:0] output_counter;
+
+    reg flatten_done;
+    
+    integer i;
     
     always @(posedge clk) begin
         if (rst) begin
+            flatten_count <= 0;
+            output_counter <= 0;
+            flatten_done <= 1'b0;
             valid_out <= 1'b0;
-            data_out <= {DATA_WIDTH{1'b0}};
             addr_out <= 8'd0;
         end else begin
-            if (valid_in) begin
-                valid_out <= 1'b1;
-                
-                data_out <= channel_data[channel_in];
-                
-                addr_out <= flat_addr;
-
+            if (!flatten_done) begin
+                if (valid_in) begin
+                    // For the current valid_in event, which corresponds to one coordinate of the 4x4 grid,
+                    // store each channel's value into flat_mem at the proper offset.
+                    // The address for channel i is: (i * (IN_WIDTH*IN_HEIGHT)) + flatten_count
+                    for(i = 0; i < IN_CHANNELS; i = i + 1) begin
+                        flat_mem[i*16 + flatten_count] <= data_in[((i+1)*DATA_WIDTH)-1 -: DATA_WIDTH];
+                    end
+                    if (flatten_count == 16 - 1) begin
+                        flatten_done <= 1'b1;
+                    end else begin
+                        flatten_count <= flatten_count + 1;
+                    end
+                end
             end else begin
-                valid_out <= 1'b0;
+                // Once flattened memory is loaded, output all 256 values
+                valid_out <= 1'b1;
+                data_out <= flat_mem[output_counter];
+                addr_out <= output_counter;
+                if (output_counter == OUT_FEATURES - 1) begin
+                    output_counter <= 0;
+                end else begin
+                    output_counter <= output_counter + 1;
+                end
             end
         end
     end

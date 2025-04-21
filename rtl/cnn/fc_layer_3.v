@@ -5,7 +5,8 @@
 module fc_layer_3 #(
     parameter IN_FEATURES = 84,     // Input features from FC2
     parameter OUT_FEATURES = 10,    // Output neurons (digits 0-9)
-    parameter DATA_WIDTH = 8        // Data width (8-bit fixed point)
+    parameter DATA_WIDTH = 8,       // Data width (8-bit fixed point)
+    parameter SHIFT = 10
 )(
     input wire clk,
     input wire rst,
@@ -134,7 +135,7 @@ module fc_layer_3 #(
                 
                 NEXT_NEURON: begin
                     valid_out <= 1'b1;
-                    data_out <= saturate(accumulator);
+                    data_out <= saturate(accumulator >> SHIFT);
                     neuron_idx <= current_neuron;
                     
                     // Move to next neuron or finish
