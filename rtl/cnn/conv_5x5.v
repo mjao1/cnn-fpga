@@ -26,12 +26,14 @@ module conv_5x5 (
     reg valid_stage1, valid_stage2, valid_stage3, valid_stage4, valid_stage5;
     reg signed [19:0] acc_stage1, acc_stage2, acc_stage3, acc_stage4, acc_stage5;
     
-    // Multiply function for 8-bit fixed-point
+    localparam PIXEL_SHIFT = 8;
+    
+    // Multiply function for 8-bit fixed-point with scaling
     function signed [15:0] mult;
         input signed [7:0] a;
         input signed [7:0] b;
         begin
-            mult = a * b;
+            mult = a * b >>> PIXEL_SHIFT;
         end
     endfunction
     
