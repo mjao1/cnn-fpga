@@ -55,16 +55,13 @@ cnn-fpga/
 ```
 
 ## Next Steps
+Debug remaining layers for top level results:
+   - Fix second convolutional layer output using golden vector comparison approach
+   - Tweak quantization shifts for FC layers if needed
 
-3. Interface with I/O:
+Interface with I/O:
    - Implement interface for touchpad input (eyeing Adafruit 2.8 touchscreen)
    - Connect logic for 7-segment display output
 
-4. Optimize for FPGA resources:
+Optimize for FPGA resources:
    - Fine-tune weight memory implementation
-
-## Performance
-- Process one 28×28 digit in under 10ms
-- Achieve >95% accuracy on MNIST test set
-- Minimize resource utilization
-- Maintain real-time operation with user input

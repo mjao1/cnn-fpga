@@ -1,6 +1,8 @@
 // simple 5x5 convolution module for CNN
 
-module conv_5x5 (
+module conv_5x5 #(
+    parameter integer PIXEL_SHIFT = 12
+) (
     input wire clk,
     input wire rst,
     input wire valid_in,
@@ -26,7 +28,9 @@ module conv_5x5 (
     reg valid_stage1, valid_stage2, valid_stage3, valid_stage4, valid_stage5;
     reg signed [19:0] acc_stage1, acc_stage2, acc_stage3, acc_stage4, acc_stage5;
     
-    localparam PIXEL_SHIFT = 8;
+    // Saturation thresholds in scaled domain
+    localparam signed [19:0] SAT_MAX = 20'sd127 <<< PIXEL_SHIFT;
+    localparam signed [19:0] SAT_MIN = -20'sd128 <<< PIXEL_SHIFT;
     
     // Multiply function for 8-bit fixed-point with scaling
     function signed [15:0] mult;
@@ -41,12 +45,12 @@ module conv_5x5 (
     function signed [7:0] saturate;
         input signed [19:0] value;
         begin
-            if (value > 20'sd127)
+            if (value > SAT_MAX)
                 saturate = 8'sd127;
-            else if (value < -20'sd128)
-                saturate = -8'sd128;    
+            else if (value < SAT_MIN)
+                saturate = -8'sd128;
             else
-                saturate = value[7:0];
+                saturate = value[PIXEL_SHIFT+7:PIXEL_SHIFT];
         end
     endfunction
     
@@ -125,6 +129,8 @@ module conv_5x5 (
             
             valid_out <= valid_stage5;
             if (valid_stage5) begin
+                // DEBUG: log raw accumulator and saturated output
+                $display("%m raw_acc_stage5=%0d sat_out=%0d", acc_stage5, saturate(acc_stage5));
                 data_out <= saturate(acc_stage5);
             end
         end

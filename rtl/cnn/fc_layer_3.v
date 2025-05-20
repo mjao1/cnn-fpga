@@ -40,6 +40,11 @@ module fc_layer_3 #(
     reg [$clog2(IN_FEATURES):0] valid_count;
     reg process_ready;
     
+    // Quantization shift for FC3 to match golden outputs
+    localparam integer FC3_SHIFT = 15;
+    localparam signed [19:0] FC3_SAT_MAX = 20'sd127 <<< FC3_SHIFT;
+    localparam signed [19:0] FC3_SAT_MIN = -20'sd128 <<< FC3_SHIFT;
+    
     weight_loader #(
         .DATA_WIDTH(DATA_WIDTH)
     ) weight_loader_inst (
@@ -60,12 +65,12 @@ module fc_layer_3 #(
     function signed [7:0] saturate;
         input signed [19:0] value;
         begin
-            if (value > 20'sd127)
+            if (value > FC3_SAT_MAX)
                 saturate = 8'sd127;
-            else if (value < -20'sd128)
-                saturate = -8'sd128;    
+            else if (value < FC3_SAT_MIN)
+                saturate = -8'sd128;
             else
-                saturate = value[7:0];
+                saturate = value[FC3_SHIFT+7:FC3_SHIFT];
         end
     endfunction
     
@@ -133,6 +138,8 @@ module fc_layer_3 #(
                 end
                 
                 NEXT_NEURON: begin
+                    // DEBUG: log FC3 raw accumulator and saturated output
+                    $display("%m FC3 neuron=%0d raw_acc=%0d sat_out=%0d", current_neuron, accumulator, saturate(accumulator));
                     valid_out <= 1'b1;
                     data_out <= saturate(accumulator);
                     neuron_idx <= current_neuron;

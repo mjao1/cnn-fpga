@@ -177,7 +177,9 @@ module conv_layer_2 #(
             
             // Instantiate a 5x5 convolution module for each input channel of this filter
             for (chan = 0; chan < IN_CHANNELS; chan = chan + 1) begin: channel_convs
-                conv_5x5 conv_inst (
+                conv_5x5 #(
+                    .PIXEL_SHIFT(8)
+                ) conv_inst (
                     .clk(clk),
                     .rst(rst),
                     .valid_in(window_valid && (state == RUNNING)),
@@ -349,9 +351,16 @@ module conv_layer_2 #(
                     data_out[((ii+1)*DATA_WIDTH)-1 -: DATA_WIDTH] <= relu_out[ii];
                 end
                 
-                // Update output coordinates (offset by KERNEL_SIZE-1 from input)
-                x_out <= x_count - (KERNEL_SIZE-1);
-                y_out <= y_count - (KERNEL_SIZE-1);
+                // Update output coordinates using counters
+                if (x_out == OUT_WIDTH-1) begin
+                    x_out <= 0;
+                    if (y_out == OUT_HEIGHT-1)
+                        y_out <= 0;
+                    else
+                        y_out <= y_out + 1;
+                end else begin
+                    x_out <= x_out + 1;
+                end
             end
         end
     end

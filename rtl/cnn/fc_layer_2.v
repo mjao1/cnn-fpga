@@ -44,6 +44,11 @@ module fc_layer_2 #(
     reg [$clog2(IN_FEATURES):0] valid_count;
     reg process_ready;
     
+    // Quantization shift for FC2 to match golden outputs
+    localparam integer FC2_SHIFT = 13;
+    localparam signed [19:0] FC2_SAT_MAX = 20'sd127 <<< FC2_SHIFT;
+    localparam signed [19:0] FC2_SAT_MIN = -20'sd128 <<< FC2_SHIFT;
+    
     weight_loader #(
         .DATA_WIDTH(DATA_WIDTH)
     ) weight_loader_inst (
@@ -73,12 +78,12 @@ module fc_layer_2 #(
     function signed [7:0] saturate;
         input signed [19:0] value;
         begin
-            if (value > 20'sd127)
+            if (value > FC2_SAT_MAX)
                 saturate = 8'sd127;
-            else if (value < -20'sd128)
-                saturate = -8'sd128;    
+            else if (value < FC2_SAT_MIN)
+                saturate = -8'sd128;
             else
-                saturate = value[7:0];
+                saturate = value[FC2_SHIFT+7:FC2_SHIFT];
         end
     endfunction
     
@@ -147,6 +152,8 @@ module fc_layer_2 #(
                 
                 NEXT_NEURON: begin
                     if (relu_valid_out) begin
+                        // DEBUG: log FC2 raw accumulator and saturated output
+                        $display("%m FC2 neuron=%0d raw_acc=%0d sat_out=%0d", current_neuron, accumulator, relu_data_out);
                         valid_out <= 1'b1;
                         data_out <= relu_data_out;
                         neuron_idx <= current_neuron;

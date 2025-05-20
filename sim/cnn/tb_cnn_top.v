@@ -30,6 +30,7 @@ module tb_cnn_top;
     integer file_handle;
     integer scan_result;
     integer i;
+    integer ch;
     
     // Output files for debug
     integer log_file; // Single log file for all outputs
@@ -296,37 +297,21 @@ module tb_cnn_top;
                           $signed(dut.pool1_data_out[6*DATA_WIDTH-1:5*DATA_WIDTH]));
             end
             
-            // Log just the first few CONV2/POOL2 outputs since they're numerous
-            
-            // Monitor CONV2 outputs (only first few for brevity)
+            // Monitor CONV2 outputs
             if (dut.conv2_valid_out) begin
-                $fwrite(log_file, "CONV2 [t=%0t]: ch=0, y=%0d, x=%0d, val=%0d\n", $time, dut.conv2_y_out, dut.conv2_x_out, 
-                          $signed(dut.conv2_data_out[1*DATA_WIDTH-1:0*DATA_WIDTH]));
-                if (dut.conv2_x_out == 0 && dut.conv2_y_out == 0) begin
-                    // Only show all channels for the first pixel
-                    $fwrite(log_file, "CONV2 [t=%0t]: ch=1, y=%0d, x=%0d, val=%0d\n", $time, dut.conv2_y_out, dut.conv2_x_out, 
-                              $signed(dut.conv2_data_out[2*DATA_WIDTH-1:1*DATA_WIDTH]));
-                    $fwrite(log_file, "CONV2 [t=%0t]: ch=2, y=%0d, x=%0d, val=%0d\n", $time, dut.conv2_y_out, dut.conv2_x_out, 
-                              $signed(dut.conv2_data_out[3*DATA_WIDTH-1:2*DATA_WIDTH]));
-                    // ... other channels omitted for brevity
-                    $fwrite(log_file, "CONV2 [t=%0t]: ch=15, y=%0d, x=%0d, val=%0d\n", $time, dut.conv2_y_out, dut.conv2_x_out,
-                              $signed(dut.conv2_data_out[16*DATA_WIDTH-1:15*DATA_WIDTH]));
+                for (ch = 0; ch < 16; ch = ch + 1) begin
+                    $fwrite(log_file, "CONV2 [t=%0t]: ch=%0d, y=%0d, x=%0d, val=%0d\n",
+                            $time, ch, dut.conv2_y_out, dut.conv2_x_out,
+                            $signed(dut.conv2_data_out[(ch+1)*DATA_WIDTH-1 -: DATA_WIDTH]));
                 end
             end
             
-            // Monitor POOL2 outputs (only first few for brevity)
+            // Monitor POOL2 outputs
             if (dut.pool2_valid_out) begin
-                $fwrite(log_file, "POOL2 [t=%0t]: ch=0, y=%0d, x=%0d, val=%0d\n", $time, dut.pool2_y_out, dut.pool2_x_out, 
-                          $signed(dut.pool2_data_out[1*DATA_WIDTH-1:0*DATA_WIDTH]));
-                if (dut.pool2_x_out == 0 && dut.pool2_y_out == 0) begin
-                    // Only show all channels for the first pixel
-                    $fwrite(log_file, "POOL2 [t=%0t]: ch=1, y=%0d, x=%0d, val=%0d\n", $time, dut.pool2_y_out, dut.pool2_x_out, 
-                              $signed(dut.pool2_data_out[2*DATA_WIDTH-1:1*DATA_WIDTH]));
-                    $fwrite(log_file, "POOL2 [t=%0t]: ch=2, y=%0d, x=%0d, val=%0d\n", $time, dut.pool2_y_out, dut.pool2_x_out, 
-                              $signed(dut.pool2_data_out[3*DATA_WIDTH-1:2*DATA_WIDTH]));
-                    // ... other channels omitted for brevity
-                    $fwrite(log_file, "POOL2 [t=%0t]: ch=15, y=%0d, x=%0d, val=%0d\n", $time, dut.pool2_y_out, dut.pool2_x_out,
-                              $signed(dut.pool2_data_out[16*DATA_WIDTH-1:15*DATA_WIDTH]));
+                for (ch = 0; ch < 16; ch = ch + 1) begin
+                    $fwrite(log_file, "POOL2 [t=%0t]: ch=%0d, y=%0d, x=%0d, val=%0d\n",
+                            $time, ch, dut.pool2_y_out, dut.pool2_x_out,
+                            $signed(dut.pool2_data_out[(ch+1)*DATA_WIDTH-1 -: DATA_WIDTH]));
                 end
             end
             

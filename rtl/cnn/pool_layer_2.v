@@ -113,10 +113,7 @@ module pool_layer_2 #(
                         pool_valid[i] <= 1;
                     end
                     
-                    // divide by 2
-                    pool_x <= x_in >> 1;
-                    pool_y <= y_in >> 1;
-
+                    // coordinates now handled by counters on output valid
                 end else begin
                     for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
                         pool_valid[i] <= 0;
@@ -125,6 +122,18 @@ module pool_layer_2 #(
             end else begin
                 for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
                     pool_valid[i] <= 0;
+                end
+            end
+            // coordinate counters for POOL2 output
+            if (pool_valid_out[0]) begin
+                if (pool_x == OUT_WIDTH-1) begin
+                    pool_x <= 0;
+                    if (pool_y == OUT_HEIGHT-1)
+                        pool_y <= 0;
+                    else
+                        pool_y <= pool_y + 1;
+                end else begin
+                    pool_x <= pool_x + 1;
                 end
             end
         end
