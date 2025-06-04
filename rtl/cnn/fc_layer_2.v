@@ -152,19 +152,16 @@ module fc_layer_2 #(
                 
                 NEXT_NEURON: begin
                     if (relu_valid_out) begin
-                        // DEBUG: log FC2 raw accumulator and saturated output
-                        $display("%m FC2 neuron=%0d raw_acc=%0d sat_out=%0d", current_neuron, accumulator, relu_data_out);
                         valid_out <= 1'b1;
                         data_out <= relu_data_out;
                         neuron_idx <= current_neuron;
-                        
                         // Move to next neuron or finish
                         if (current_neuron == OUT_FEATURES - 1) begin
                             state <= DONE;
                         end else begin
                             current_neuron <= current_neuron + 7'd1;
                             current_input <= 7'd0;
-                            state <= LOAD; // goto LOAD state to get next
+                            state <= LOAD;
                         end
                     end
                 end

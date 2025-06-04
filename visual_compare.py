@@ -76,10 +76,19 @@ def visualize_activations(golden_file, sim_file, output_dir):
     # Determine the available channels
     all_channels = set(golden_data.keys()) | set(sim_data.keys())
     
+    # Auto-detect dimensions from the data
+    max_height, max_width = 0, 0
+    for data in [golden_data, sim_data]:
+        for channel in data:
+            for y in data[channel]:
+                for x in data[channel][y]:
+                    max_height = max(max_height, y + 1)
+                    max_width = max(max_width, x + 1)
+    
     for channel in sorted(all_channels):
         # Create activation maps
-        golden_map = create_activation_map(golden_data, channel)
-        sim_map = create_activation_map(sim_data, channel)
+        golden_map = create_activation_map(golden_data, channel, max_height, max_width)
+        sim_map = create_activation_map(sim_data, channel, max_height, max_width)
         
         # Calculate difference
         diff_map = golden_map - sim_map
@@ -169,17 +178,23 @@ def main():
     # Path to files
     golden_conv1 = "golden_vectors/conv1_output.txt"
     sim_conv1 = "sim/cnn/formatted_output/conv1_output.txt"
+    golden_conv2 = "golden_vectors/conv2_output.txt"
+    sim_conv2 = "sim/cnn/formatted_output/conv2_output.txt"
     golden_fc3 = "golden_vectors/fc3_output.txt"
     sim_fc3 = "sim/cnn/formatted_output/fc3_output.txt"
     output_dir = "sim/cnn/comparison_plots"
     
     # Visualize conv1 activations
     print("Comparing CONV1 activations...")
-    visualize_activations(golden_conv1, sim_conv1, output_dir)
+    visualize_activations(golden_conv1, sim_conv1, output_dir + "/conv1")
+    
+    # Visualize conv2 activations  
+    print("\nComparing CONV2 activations...")
+    visualize_activations(golden_conv2, sim_conv2, output_dir + "/conv2")
     
     # Compare FC3 outputs (final digit classification)
     print("\nComparing FC3 outputs (final classification)...")
-    compare_fc_outputs(golden_fc3, sim_fc3, output_dir)
+    compare_fc_outputs(golden_fc3, sim_fc3, output_dir + "/fc3")
     
     print(f"\nPlots saved to {output_dir}")
 

@@ -59,6 +59,12 @@ module conv_layer_2 #(
     
     reg [DATA_WIDTH-1:0] filter_outputs [0:OUT_CHANNELS-1];
     
+    integer conv2_log; // file handle for conv2 debug logs
+
+    initial begin
+        conv2_log = $fopen("conv2.log", "w");
+    end
+    
     // Unpack input channels
     genvar c;
     generate
@@ -178,7 +184,7 @@ module conv_layer_2 #(
             // Instantiate a 5x5 convolution module for each input channel of this filter
             for (chan = 0; chan < IN_CHANNELS; chan = chan + 1) begin: channel_convs
                 conv_5x5 #(
-                    .PIXEL_SHIFT(8)
+                    .PIXEL_SHIFT(12)
                 ) conv_inst (
                     .clk(clk),
                     .rst(rst),
@@ -233,16 +239,41 @@ module conv_layer_2 #(
                 end else begin
                     // When the first channel's convolution is ready
                     if (conv_valid[0]) begin
-                        accumulator <= 20'd0;
+                        // DEBUG: print conv2 per-channel results and control to conv2.log
+                        $fdisplay(conv2_log, "FILTER %0d window @(%0d,%0d) conv_valid=%b", f, x_count, y_count, conv_valid);
+                        // DEBUG: print input window data for filter 0, channel 0 only
+                        if (f == 0) begin
+                            $fdisplay(conv2_log, "  WINDOW ch0 data:");
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][0], window_flat[0][1], window_flat[0][2], window_flat[0][3], window_flat[0][4]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][5], window_flat[0][6], window_flat[0][7], window_flat[0][8], window_flat[0][9]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][10], window_flat[0][11], window_flat[0][12], window_flat[0][13], window_flat[0][14]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][15], window_flat[0][16], window_flat[0][17], window_flat[0][18], window_flat[0][19]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][20], window_flat[0][21], window_flat[0][22], window_flat[0][23], window_flat[0][24]);
+                            $fdisplay(conv2_log, "  WEIGHTS f0_ch0:");
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][0], weight[0][0][1], weight[0][0][2], weight[0][0][3], weight[0][0][4]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][5], weight[0][0][6], weight[0][0][7], weight[0][0][8], weight[0][0][9]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][10], weight[0][0][11], weight[0][0][12], weight[0][0][13], weight[0][0][14]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][15], weight[0][0][16], weight[0][0][17], weight[0][0][18], weight[0][0][19]);
+                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][20], weight[0][0][21], weight[0][0][22], weight[0][0][23], weight[0][0][24]);
+                        end
+                        for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
+                            $fdisplay(conv2_log, "    ch%0d = %0d", kk, conv_result[kk]);
+                        end
+                        // DEBUG: print bias for this filter
+                        $fdisplay(conv2_log, "    bias = %0d", bias[f]);
+                        // Perform accumulation in one cycle using blocking assignments
+                        accumulator = 20'd0;
                         // Sum all channel convolutions
                         for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
-                            accumulator <= accumulator + {{12{conv_result[kk][7]}}, conv_result[kk]};
+                            accumulator = accumulator + {{12{conv_result[kk][7]}}, conv_result[kk]};
                         end
                         // Add the bias term
-                        accumulator <= accumulator + {{12{bias[f][7]}}, bias[f]};
-                        accum_valid <= 1'b1;
+                        accumulator = accumulator + {{12{bias[f][7]}}, bias[f]};
+                        // DEBUG: print final accumulator value
+                        $fdisplay(conv2_log, "    final_acc = %0d", accumulator);
+                        accum_valid = 1'b1;
                     end else begin
-                        accum_valid <= 1'b0;
+                        accum_valid = 1'b0;
                     end
                 end
             end
@@ -339,6 +370,12 @@ module conv_layer_2 #(
             end
             
             if (relu_valid_out[0]) begin
+                // DEBUG: log final conv2 outputs to conv2.log
+                $fdisplay(conv2_log, "CONV2 OUTPUT @(%0d,%0d)", x_out, y_out);
+                for (ii = 0; ii < OUT_CHANNELS; ii = ii + 1) begin
+                    $fdisplay(conv2_log, "    out%0d = %0d", ii, relu_out[ii]);
+                end
+                $fdisplay(conv2_log, "    packed data_out = %h", data_out);
                 valid_out <= 1'b1;
                 
                 // Pack all filter outputs

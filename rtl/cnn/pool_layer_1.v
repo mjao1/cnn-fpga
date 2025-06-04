@@ -15,13 +15,13 @@ module pool_layer_1 #(
     input wire rst,
     input wire valid_in,
     input wire [(DATA_WIDTH*NUM_CHANNELS)-1:0] data_in,
-    input wire [7:0] x_in,
-    input wire [7:0] y_in,
+    input wire [8:0] x_in,
+    input wire [8:0] y_in,
     
     output wire valid_out,
     output wire [(DATA_WIDTH*NUM_CHANNELS)-1:0] data_out,
-    output wire [7:0] x_out,
-    output wire [7:0] y_out
+    output wire [8:0] x_out,
+    output wire [8:0] y_out
 );
 
     reg [DATA_WIDTH-1:0] buffer [0:NUM_CHANNELS-1][0:1][0:IN_WIDTH-1]; // Double buffer for two rows per channel
@@ -37,10 +37,10 @@ module pool_layer_1 #(
     reg pool_valid [0:NUM_CHANNELS-1];
     wire pool_valid_out [0:NUM_CHANNELS-1];
     
-    reg [7:0] x_pos;
-    reg [7:0] y_pos;
-    reg [7:0] pool_x;
-    reg [7:0] pool_y;
+    reg [8:0] x_pos;
+    reg [8:0] y_pos;
+    reg [8:0] pool_x;
+    reg [8:0] pool_y;
     
     // Unpack input channels
     genvar c;

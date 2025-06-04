@@ -235,13 +235,7 @@ module tb_cnn_top;
                     default: $display("Time: %0t, State: UNKNOWN", $time);
                 endcase
             end
-            
-            // Debug fc_layers state transitions specifically
-            if (dut.fc_layers_inst.state != prev_fc_state) begin
-                $display("Time: %0t, FC STATE CHANGED TO: %s", $time, fc_state_name);
-                $fwrite(log_file, "FC STATE CHANGE [t=%0t]: %s\n", $time, fc_state_name);
-                prev_fc_state <= dut.fc_layers_inst.state;
-            end
+    
             
             if (dut.state == 5'd1 && pixel_valid) begin
                 if (pixel_addr % (NUM_PIXELS/10) == 0) begin

@@ -129,8 +129,6 @@ module conv_5x5 #(
             
             valid_out <= valid_stage5;
             if (valid_stage5) begin
-                // DEBUG: log raw accumulator and saturated output
-                $display("%m raw_acc_stage5=%0d sat_out=%0d", acc_stage5, saturate(acc_stage5));
                 data_out <= saturate(acc_stage5);
             end
         end

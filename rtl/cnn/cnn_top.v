@@ -29,11 +29,10 @@ module cnn_top #(
     localparam CONV1         = 5'd2;
     localparam POOL1         = 5'd3;
     localparam CONV2         = 5'd4;
-    localparam POOL2         = 5'd5;
-    localparam FLATTEN       = 5'd6;
-    localparam FC_LAYERS     = 5'd7;
-    localparam FIND_MAX      = 5'd8;
-    localparam DONE          = 5'd9;
+    localparam FLATTEN       = 5'd5;
+    localparam FC_LAYERS     = 5'd6;
+    localparam FIND_MAX      = 5'd7;
+    localparam DONE          = 5'd8;
     
     reg [4:0] state;
     
@@ -70,7 +69,15 @@ module cnn_top #(
     reg pool1_start;
     wire pool1_valid_out;
     wire [DATA_WIDTH*6-1:0] pool1_data_out;
-    wire [7:0] pool1_x_out, pool1_y_out;
+    wire [8:0] pool1_x_out, pool1_y_out;
+    
+    // Pool1 output buffer (6 channels x 12x12 = 864 values)
+    reg [DATA_WIDTH-1:0] pool1_buffer [0:5][0:11][0:11];
+    reg [DATA_WIDTH*6-1:0] pool1_buffer_data;
+    reg [7:0] pool1_buffer_count;
+    reg pool1_buffer_complete;
+    reg [7:0] conv2_feed_x, conv2_feed_y;
+    reg conv2_feed_valid;
     
     // Conv Layer 2 signals
     reg conv2_start;
@@ -79,7 +86,6 @@ module cnn_top #(
     wire [7:0] conv2_x_out, conv2_y_out;
     
     // Pool Layer 2 signals
-    reg pool2_start;
     wire pool2_valid_out;
     wire [DATA_WIDTH*16-1:0] pool2_data_out;
     wire [7:0] pool2_x_out, pool2_y_out;
@@ -105,15 +111,12 @@ module cnn_top #(
     
     integer i, j, k;
     
-    wire pool2_valid_in = (state == POOL2) ? 1'b1 : conv2_valid_out;
-    
-    reg [7:0] pool2_x_reg, pool2_y_reg;
+    wire pool2_valid_in = conv2_valid_out;
     
     reg flatten_complete;
     
     reg [4:0] pool2_valid_count;
-    
-    reg conv2_valid_reg;
+    reg pool2_complete;
     
     // Conv Layer 1 (1x28x28 -> 6x24x24)
     conv_layer_1 #(
@@ -155,8 +158,8 @@ module cnn_top #(
         .rst(rst),
         .valid_in(conv1_valid_out),
         .data_in(conv1_data_out),
-        .x_in(conv1_x_out[7:0]),
-        .y_in(conv1_y_out[7:0]),
+        .x_in(conv1_x_out),
+        .y_in(conv1_y_out),
         .valid_out(pool1_valid_out),
         .data_out(pool1_data_out),
         .x_out(pool1_x_out),
@@ -176,17 +179,17 @@ module cnn_top #(
     ) conv2 (
         .clk(clk),
         .rst(rst),
-        .valid_in(conv2_valid_reg),
-        .data_in(pool1_data_out),
-        .x_in(pool1_x_out),
-        .y_in(pool1_y_out),
+        .valid_in(conv2_feed_valid),
+        .data_in(pool1_buffer_data),
+        .x_in(conv2_feed_x),
+        .y_in(conv2_feed_y),
         .valid_out(conv2_valid_out),
         .data_out(conv2_data_out),
         .x_out(conv2_x_out),
         .y_out(conv2_y_out)
     );
     
-    // Pool Layer 2 signals
+    // Pool Layer 2 (16x8x8 -> 16x4x4)
     pool_layer_2 #(
         .IN_WIDTH(8),
         .IN_HEIGHT(8),
@@ -199,8 +202,8 @@ module cnn_top #(
         .rst(rst),
         .valid_in(pool2_valid_in),
         .data_in(conv2_data_out),
-        .x_in((state == POOL2 || state == FLATTEN) ? pool2_x_reg : conv2_x_out),
-        .y_in((state == POOL2 || state == FLATTEN) ? pool2_y_reg : conv2_y_out),
+        .x_in(conv2_x_out),
+        .y_in(conv2_y_out),
         .valid_out(pool2_valid_out),
         .data_out(pool2_data_out),
         .x_out(pool2_x_out),
@@ -265,9 +268,13 @@ module cnn_top #(
             flatten_channel <= 4'd0;
             max_class_idx <= 4'd0;
             max_class_score <= 8'd0;
-            pool2_x_reg <= 8'd0;
-            pool2_y_reg <= 8'd0;
-            conv2_valid_reg <= 1'b0;
+            pool1_buffer_count <= 8'd0;
+            pool1_buffer_complete <= 1'b0;
+            conv2_feed_x <= 8'd0;
+            conv2_feed_y <= 8'd0;
+            conv2_feed_valid <= 1'b0;
+            pool2_valid_count <= 5'd0;
+            pool2_complete <= 1'b0;
             
             for (i = 0; i < IMG_HEIGHT; i = i + 1) begin
                 for (j = 0; j < IMG_WIDTH; j = j + 1) begin
@@ -278,12 +285,47 @@ module cnn_top #(
             for (i = 0; i < NUM_CLASSES; i = i + 1) begin
                 class_scores[i] <= 8'd0;
             end
+            
+            for (i = 0; i < 6; i = i + 1) begin
+                for (j = 0; j < 12; j = j + 1) begin
+                    for (k = 0; k < 12; k = k + 1) begin
+                        pool1_buffer[i][j][k] <= 8'd0;
+                    end
+                end
+            end
         end else begin
             // Default signals
             conv1_valid_in <= 1'b0;
             flatten_valid_in <= 1'b0;
             fc_start <= 1'b0;
-            conv2_valid_reg <= 1'b0;
+            conv2_feed_valid <= 1'b0;
+            
+            // Always capture pool1 outputs when they're valid
+            if (pool1_valid_out && !pool1_buffer_complete) begin
+                // Unpack pool1 data and store in buffer
+                pool1_buffer[0][pool1_y_out][pool1_x_out] <= pool1_data_out[7:0];
+                pool1_buffer[1][pool1_y_out][pool1_x_out] <= pool1_data_out[15:8];
+                pool1_buffer[2][pool1_y_out][pool1_x_out] <= pool1_data_out[23:16];
+                pool1_buffer[3][pool1_y_out][pool1_x_out] <= pool1_data_out[31:24];
+                pool1_buffer[4][pool1_y_out][pool1_x_out] <= pool1_data_out[39:32];
+                pool1_buffer[5][pool1_y_out][pool1_x_out] <= pool1_data_out[47:40];
+                pool1_buffer_count <= pool1_buffer_count + 8'd1;
+                
+                // Check if all 144 pool1 outputs (12x12) received
+                if (pool1_buffer_count == 8'd143) begin
+                    pool1_buffer_complete <= 1'b1;
+                end
+            end
+            
+            // Always capture pool2 outputs when they're valid
+            if (pool2_valid_out && !pool2_complete) begin
+                pool2_valid_count <= pool2_valid_count + 5'd1;
+                
+                // Check if all 16 pool2 outputs (4x4) received
+                if (pool2_valid_count == 5'd15) begin
+                    pool2_complete <= 1'b1;
+                end
+            end
             
             case (state)
                 IDLE: begin
@@ -339,44 +381,49 @@ module cnn_top #(
                 end
                 
                 POOL1: begin
-                    if (pool1_valid_out) begin
+                    // Wait for all pool1 outputs to be buffered
+                    if (pool1_buffer_complete) begin
                         conv2_count <= 6'd0;
+                        conv2_feed_x <= 8'd0;
+                        conv2_feed_y <= 8'd0;
                         state <= CONV2;
                     end
                 end
                 
                 CONV2: begin
-                    conv2_valid_reg <= 1'b1;
+                    // Feed buffered pool1 data to conv2 in order
+                    conv2_feed_valid <= 1'b1;
+                    
+                    // Pack current position data from buffer
+                    pool1_buffer_data[7:0] <= pool1_buffer[0][conv2_feed_y][conv2_feed_x];
+                    pool1_buffer_data[15:8] <= pool1_buffer[1][conv2_feed_y][conv2_feed_x];
+                    pool1_buffer_data[23:16] <= pool1_buffer[2][conv2_feed_y][conv2_feed_x];
+                    pool1_buffer_data[31:24] <= pool1_buffer[3][conv2_feed_y][conv2_feed_x];
+                    pool1_buffer_data[39:32] <= pool1_buffer[4][conv2_feed_y][conv2_feed_x];
+                    pool1_buffer_data[47:40] <= pool1_buffer[5][conv2_feed_y][conv2_feed_x];
+                    
+                    // Advance feed position
+                    if (conv2_feed_x == 8'd11) begin
+                        conv2_feed_x <= 8'd0;
+                        if (conv2_feed_y == 8'd11) begin
+                            conv2_feed_y <= 8'd0;
+                        end else begin
+                            conv2_feed_y <= conv2_feed_y + 8'd1;
+                        end
+                    end else begin
+                        conv2_feed_x <= conv2_feed_x + 8'd1;
+                    end
+                    
                     if (conv2_valid_out) begin
                         if (conv2_count == 6'd63) begin
                             conv2_count <= 6'd0;
-                            pool2_x_reg <= 8'd0;
-                            pool2_y_reg <= 8'd0;
-                            state <= POOL2;
+                            // Wait for pool2 to complete processing all conv2 outputs
+                            if (pool2_complete) begin
+                                state <= FLATTEN;
+                            end
                         end else begin
                             conv2_count <= conv2_count + 6'd1;
                         end
-                    end
-                end
-                
-                POOL2: begin
-                    if (pool2_x_reg == 8'd7) begin
-                        pool2_x_reg <= 8'd0;
-                        if (pool2_y_reg == 8'd7)
-                            pool2_y_reg <= 8'd0;
-                        else
-                            pool2_y_reg <= pool2_y_reg + 8'd1;
-                    end else begin
-                        pool2_x_reg <= pool2_x_reg + 8'd1;
-                    end
-
-                    if (pool2_valid_out) begin
-                        pool2_valid_count <= pool2_valid_count + 5'd1;
-                    end
-
-                    if (pool2_valid_count == 5'd16) begin
-                        state <= FLATTEN;
-                        pool2_valid_count <= 5'd0;
                     end
                 end
                 

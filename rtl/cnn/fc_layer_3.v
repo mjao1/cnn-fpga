@@ -138,19 +138,16 @@ module fc_layer_3 #(
                 end
                 
                 NEXT_NEURON: begin
-                    // DEBUG: log FC3 raw accumulator and saturated output
-                    $display("%m FC3 neuron=%0d raw_acc=%0d sat_out=%0d", current_neuron, accumulator, saturate(accumulator));
                     valid_out <= 1'b1;
                     data_out <= saturate(accumulator);
                     neuron_idx <= current_neuron;
-                    
                     // Move to next neuron or finish
                     if (current_neuron == OUT_FEATURES - 1) begin
                         state <= DONE;
                     end else begin
                         current_neuron <= current_neuron + 4'd1;
                         current_input <= 7'd0;
-                        state <= LOAD; // goto LOAD state to get next
+                        state <= LOAD;
                     end
                 end
                 
