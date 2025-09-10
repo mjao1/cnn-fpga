@@ -50,14 +50,14 @@ The implementation follows the LeNet-5 architecture:
 cnn-fpga/
 ├── rtl/cnn/          # CNN modules implementation
 ├── sim/cnn/          # Component testbenches
-├── weights_mem/          # Quantized CNN weights (mem. format)
+├── weights_mem/      # Quantized CNN weights (mem. format)
 └── python/           # Model training and weight generation
 ```
 
 ## Next Steps
 Debug remaining layers for top level results:
-   - Fix second convolutional layer output using golden vector comparison approach
-   - Tweak quantization shifts for FC layers if needed
+   - Switch from per-layer dynamic scaling to fixed Qm.n across all layers for software training
+   - Since libs are being used for per-layer dynamic scaling, these specific factors cannot be accurately reapplied in RTL, meaning that the weights must be regenerated with fixed scaling
 
 Interface with I/O:
    - Implement interface for touchpad input (eyeing Adafruit 2.8 touchscreen)
