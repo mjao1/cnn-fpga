@@ -99,3 +99,7 @@ iverilog -g2012 -o sim/cnn/tb_fc_layer_3.vvp sim/cnn/tb_fc_layer_3.v rtl/cnn/*.v
 # fc_layers
 iverilog -g2012 -o sim/cnn/tb_fc_layers.vvp sim/cnn/tb_fc_layers.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_fc_layers.vvp
 ```
+
+
+## Next Steps
+- Create another testbench that tests the full hardware CNN pipeline through a high volume of unique MNIST digits (0-9) to study inference accuracy
