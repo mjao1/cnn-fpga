@@ -1,10 +1,7 @@
-// SystemVerilog
 // 5x5 convolution module for CNN
 // Fixed-Point Format: Q1.7
-// - Inputs (data, weights, bias): 8-bit signed, Q1.7 format
-// - Products: 16-bit signed, Q2.14 format
-// - Accumulator: 24-bit signed
-// - Output: 8-bit signed, Q1.7 format
+// Input: (data, weights, bias) 8-bit signed, Q1.7 format
+// Output: 8-bit signed, Q1.7 format
 
 module conv_5x5 #(
     parameter integer FRAC_BITS = 7
