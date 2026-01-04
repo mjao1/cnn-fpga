@@ -1,6 +1,6 @@
 # cnn-fpga
 ## Project Overview
-This project implements a LeNet-5 Convolutional Neural Network (CNN) architecture created by RTL Verilog and designed for for a real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for hardware acceleration.
+This project implements a LeNet-5 Convolutional Neural Network (CNN) in RTL Verilog/SystemVerilog for real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for FPGA deployment using uniform Q1.7 fixed-point quantization.
 
 <img src="./python/plots/predictions.png" width="70%" alt="MNIST Recognition">
 
@@ -10,6 +10,7 @@ The implementation follows the LeNet-5 architecture:
 
 ### Input Layer
 - 28×28 grayscale image input (1 channel)
+- Q1.7 fixed-point format (8-bit signed, 7 fractional bits)
 
 ### Convolutional Layers
 - **Conv1**: 1×28×28 → 6×24×24 (6 filters, 5×5 kernel, stride 1, no padding)
@@ -23,45 +24,78 @@ The implementation follows the LeNet-5 architecture:
 - **FC2**: 120 → 84 neurons
 - **FC3**: 84 → 10 neurons (digit classification)
 
-## Current Implementation
-
-### CNN Components
-- **ReLU Activation**: Implements max(0,x) function with 8-bit signed precision
-- **Max Pooling**: 2×2 max pooling with stride 2, handles signed values correctly
-- **Convolution**: 5×5 convolution with 5-stage pipeline, saturation, and bias addition
-- **Conv Layer 1**: First convolutional layer with 6 filters (28×28 → 24×24)
-- **Pool Layer 1**: First pooling layer (24×24 → 12×12)
-- **Conv Layer 2**: Second convolutional layer with 16 filters (12×12 → 8×8)
-- **Pool Layer 2**: Second pooling layer (8×8 → 4×4)
-- **Flatten Module**: Converts 16×4×4 feature maps to 256-element vector
-- **FC Layer 1**: First fully connected layer (256 → 120) with ReLU activation
-- **FC Layer 2**: Second fully connected layer (120 → 84) with ReLU activation
-- **FC Layer 3**: Output layer (84 → 10) for digit classification
-- **FC Layers**: Top module integrating all three fully connected layers
-- **Weight Loader**: Module to access pre-trained weights and biases across all layers
-
-### Weight Management
-- Weights stored in BRAM via memory wrapper modules
-- 8-bit fixed-point quantization
-- Separate memory modules for weights and biases of each layer
 
 ## Project Structure
 ```
 cnn-fpga/
-├── rtl/cnn/          # CNN modules implementation
-├── sim/cnn/          # Component testbenches
-├── weights_mem/      # Quantized CNN weights (mem. format)
-└── python/           # Model training and weight generation
+├── rtl/cnn/          # CNN RTL modules (Verilog/SystemVerilog)
+├── sim/cnn/          # Component testbenches and golden vectors
+├── weights_mem/      # Quantized CNN weights (.mem format)
+├── golden_vectors/   # Expected layer outputs for verification
+└── python/           # Model training, quantization, and test generation
 ```
 
-## Next Steps
-Debug remaining layers for top level results:
-   - Switch from per-layer dynamic scaling to fixed Qm.n across all layers for software training
-   - Since libs are being used for per-layer dynamic scaling, these specific factors cannot be accurately reapplied in RTL, meaning that the weights must be regenerated with fixed scaling
 
-Interface with I/O:
-   - Implement interface for touchpad input (eyeing Adafruit 2.8 touchscreen)
-   - Connect logic for 7-segment display output
+## RTL Implementation
 
-Optimize for FPGA resources:
-   - Fine-tune weight memory implementation
+### CNN Components
+- **cnn_top**: Top level state machine coordinating data flow through all layers (conv→relu→pool→flatten→fc), managing layer transitions and pipeline synchronization
+- **conv_5x5**: Core 5×5 convolution kernel performing element-wise multiplication, accumulation in 24-bit precision, bias addition, and Q1.7 scaling with saturation
+- **conv_layer_1**: First convolutional layer implementing 6 parallel 5×5 filters, line buffering for 28×28 input, weight loading from BRAM, and ReLU activation
+- **conv_layer_2**: Second convolutional layer implementing 16 parallel 5×5 filters, full-precision multi-channel accumulation across 6 input channels, weight loading from BRAM, and ReLU activation
+- **max_pool_2x2**: 2×2 max pooling unit with signed comparison
+- **pool_layer_1**: First pooling layer processing 6 channels of 24×24 feature maps with line buffering, producing 6×12×12 output
+- **pool_layer_2**: Second pooling layer processing 16 channels of 8×8 feature maps with line buffering, producing 16×4×4 output
+- **flatten**: Converts multi-dimensional feature maps (16×4×4) into a 256-element 1D vector for fully connected layers
+- **fc_layer_1**: First fully connected layer performing matrix-vector multiplication (256→120), weight/bias access from BRAM with proper latency handling, and ReLU activation
+- **fc_layer_2**: Second fully connected layer performing matrix-vector multiplication (120→84), weight/bias access from BRAM with proper latency handling, and ReLU activation
+- **fc_layer_3**: Output layer performing matrix-vector multiplication (84→10) for digit classification, weight/bias access from BRAM with proper latency handling, no activation
+- **relu**: ReLU activation function implementing max(0, x) for signed 8-bit Q1.7 values
+- **weight_loader**: Centralized module routing weight and bias requests to BRAM memory modules based on layer selection
+
+
+### Weight Management
+- Weights stored in BRAM via memory wrapper modules
+- 8-bit signed fixed-point (Q1.7 format)
+- Separate memory modules for weights and biases of each layer
+
+
+## Simulation
+```bash
+# Full CNN pipeline test
+iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_cnn_top.vvp
+
+# Individual module tests
+# conv_5x5
+iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v && vvp sim/cnn/tb_conv_5x5.vvp
+
+# conv_layer_1
+iverilog -g2012 -o sim/cnn/tb_conv_layer_1.vvp sim/cnn/tb_conv_layer_1.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_conv_layer_1.vvp
+
+# conv_layer_2
+iverilog -g2012 -o sim/cnn/tb_conv_layer_2.vvp sim/cnn/tb_conv_layer_2.sv rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_conv_layer_2.vvp
+
+# pool_layer_1
+iverilog -g2012 -o sim/cnn/tb_pool_layer_1.vvp sim/cnn/tb_pool_layer_1.sv rtl/cnn/pool_layer_1.v rtl/cnn/max_pool_2x2.v && vvp sim/cnn/tb_pool_layer_1.vvp
+
+# pool_layer_2
+iverilog -g2012 -o sim/cnn/tb_pool_layer_2.vvp sim/cnn/tb_pool_layer_2.sv rtl/cnn/pool_layer_2.v rtl/cnn/max_pool_2x2.v && vvp sim/cnn/tb_pool_layer_2.vvp
+
+# relu
+iverilog -g2012 -o sim/cnn/tb_relu.vvp sim/cnn/tb_relu.v rtl/cnn/relu.v && vvp sim/cnn/tb_relu.vvp
+
+# flatten
+iverilog -g2012 -o sim/cnn/tb_flatten.vvp sim/cnn/tb_flatten.sv rtl/cnn/flatten.v && vvp sim/cnn/tb_flatten.vvp
+
+# fc_layer_1
+iverilog -g2012 -o sim/cnn/tb_fc_layer_1.vvp sim/cnn/tb_fc_layer_1.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_fc_layer_1.vvp
+
+# fc_layer_2
+iverilog -g2012 -o sim/cnn/tb_fc_layer_2.vvp sim/cnn/tb_fc_layer_2.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_fc_layer_2.vvp
+
+# fc_layer_3
+iverilog -g2012 -o sim/cnn/tb_fc_layer_3.vvp sim/cnn/tb_fc_layer_3.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_fc_layer_3.vvp
+
+# fc_layers
+iverilog -g2012 -o sim/cnn/tb_fc_layers.vvp sim/cnn/tb_fc_layers.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_fc_layers.vvp
+```
