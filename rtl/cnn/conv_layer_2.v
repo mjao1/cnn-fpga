@@ -11,7 +11,8 @@ module conv_layer_2 #(
     parameter IN_CHANNELS = 6,    // Number of input channels
     parameter OUT_CHANNELS = 16,  // Number of filters in second layer of LeNet-5
     parameter KERNEL_SIZE = 5,    // Kernel size (5x5)
-    parameter DATA_WIDTH = 8      // Data width (8-bit fixed point)
+    parameter DATA_WIDTH = 8,     // Data width (8-bit fixed point)
+    parameter FRAC_BITS = 7       // Q1.7 format
 )(
     input wire clk,
     input wire rst,
@@ -22,7 +23,8 @@ module conv_layer_2 #(
     output reg valid_out,                        // Output valid signal
     output reg [(DATA_WIDTH*OUT_CHANNELS)-1:0] data_out, // 16 parallel output channels
     output reg [7:0] x_out,                      // X coordinate of output pixel
-    output reg [7:0] y_out                       // Y coordinate of output pixel
+    output reg [7:0] y_out,                      // Y coordinate of output pixel
+    output wire ready                            // Ready signal (weight loading complete)
 );
 
     reg [DATA_WIDTH-1:0] line_buffer [0:IN_CHANNELS-1][0:KERNEL_SIZE-1][0:MAP_WIDTH-1];
@@ -42,11 +44,16 @@ module conv_layer_2 #(
     
     wire signed [DATA_WIDTH-1:0] window_flat [0:IN_CHANNELS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
     
-    localparam INIT = 2'b00;
-    localparam LOAD_WEIGHTS = 2'b01;
-    localparam RUNNING = 2'b10;
+    localparam INIT = 3'b000;
+    localparam LOAD_WEIGHTS_ADDR = 3'b001;  // Set address, wait for BRAM
+    localparam LOAD_WEIGHTS_DATA = 3'b010;  // Store data, advance to next
+    localparam LOAD_BIAS_ADDR = 3'b011;     // Set bias address
+    localparam LOAD_BIAS_DATA = 3'b100;     // Store bias
+    localparam RUNNING = 3'b101;
     
-    reg [1:0] state;
+    assign ready = (state == RUNNING);
+    
+    reg [2:0] state;
     reg [7:0] current_filter;
     reg [7:0] current_channel;
     reg [7:0] current_kernel;
@@ -58,12 +65,6 @@ module conv_layer_2 #(
     wire [DATA_WIDTH-1:0] data_in_channel [0:IN_CHANNELS-1];
     
     reg [DATA_WIDTH-1:0] filter_outputs [0:OUT_CHANNELS-1];
-    
-    integer conv2_log; // file handle for conv2 debug logs
-
-    initial begin
-        conv2_log = $fopen("conv2.log", "w");
-    end
     
     // Unpack input channels
     genvar c;
@@ -110,42 +111,53 @@ module conv_layer_2 #(
         end else begin
             case (state)
                 INIT: begin
-                    state <= LOAD_WEIGHTS;
+                    state <= LOAD_WEIGHTS_ADDR;
                     current_filter <= 8'd0;
                     current_channel <= 8'd0;
                     current_kernel <= 8'd0;
                     load_bias <= 1'b0;
                 end
                 
-                LOAD_WEIGHTS: begin
-                    if (!load_bias) begin
-                        // Store weight
-                        weight[current_filter][current_channel][current_kernel] <= loaded_weight;
+                LOAD_WEIGHTS_ADDR: begin
+                    state <= LOAD_WEIGHTS_DATA;
+                end
+                
+                LOAD_WEIGHTS_DATA: begin
+                    weight[current_filter][current_channel][current_kernel] <= loaded_weight;
+                    
+                    // Move to next weight
+                    if (current_kernel == KERNEL_SIZE*KERNEL_SIZE-1) begin
+                        current_kernel <= 8'd0;
                         
-                        // Move to next weight
-                        if (current_kernel == KERNEL_SIZE*KERNEL_SIZE-1) begin
-                            current_kernel <= 8'd0;
-                            
-                            if (current_channel == IN_CHANNELS-1) begin
-                                current_channel <= 8'd0;
-                                load_bias <= 1'b1;
-                            end else begin
-                                current_channel <= current_channel + 8'd1;
-                            end
+                        if (current_channel == IN_CHANNELS-1) begin
+                            current_channel <= 8'd0;
+                            state <= LOAD_BIAS_ADDR;
                         end else begin
-                            current_kernel <= current_kernel + 8'd1;
+                            current_channel <= current_channel + 8'd1;
+                            state <= LOAD_WEIGHTS_ADDR;
                         end
                     end else begin
-                        // Store bias
-                        bias[current_filter] <= loaded_bias;
-                        
-                        // Move to next filter
-                        if (current_filter == OUT_CHANNELS-1) begin
-                            state <= RUNNING;
-                        end else begin
-                            current_filter <= current_filter + 8'd1;
-                            load_bias <= 1'b0;
-                        end
+                        current_kernel <= current_kernel + 8'd1;
+                        state <= LOAD_WEIGHTS_ADDR;
+                    end
+                end
+                
+                LOAD_BIAS_ADDR: begin
+                    state <= LOAD_BIAS_DATA;
+                end
+                
+                LOAD_BIAS_DATA: begin
+                    // Store bias
+                    bias[current_filter] <= loaded_bias;
+                    
+                    // Move to next filter
+                    if (current_filter == OUT_CHANNELS-1) begin
+                        state <= RUNNING;
+                    end else begin
+                        current_filter <= current_filter + 8'd1;
+                        current_channel <= 8'd0;
+                        current_kernel <= 8'd0;
+                        state <= LOAD_WEIGHTS_ADDR;
                     end
                 end
                 
@@ -177,14 +189,17 @@ module conv_layer_2 #(
             
             // Accumulation signals for each output channel
             wire [IN_CHANNELS-1:0] conv_valid;
-            wire signed [DATA_WIDTH-1:0] conv_result [0:IN_CHANNELS-1];
-            reg signed [19:0] accumulator;
+            wire signed [DATA_WIDTH-1:0] conv_result [0:IN_CHANNELS-1]; // Scaled output
+            wire signed [23:0] conv_raw_sum [0:IN_CHANNELS-1];          // Raw sum in Q2.14 format
+            reg signed [23:0] conv_raw_sum_held [0:IN_CHANNELS-1];      // Extra register to hold values
+            reg conv_valid_d1;                                          // Delayed conv_valid to sync with held values
+            reg signed [26:0] accumulator;
             reg accum_valid;
             
             // Instantiate a 5x5 convolution module for each input channel of this filter
             for (chan = 0; chan < IN_CHANNELS; chan = chan + 1) begin: channel_convs
                 conv_5x5 #(
-                    .PIXEL_SHIFT(12)
+                    .FRAC_BITS(FRAC_BITS)
                 ) conv_inst (
                     .clk(clk),
                     .rst(rst),
@@ -227,50 +242,49 @@ module conv_layer_2 #(
                     .bias(8'd0), // Use 0 for individual channel biases, add real bias later
                     
                     .valid_out(conv_valid[chan]),
-                    .data_out(conv_result[chan])
+                    .data_out(conv_result[chan]),
+                    .raw_sum(conv_raw_sum[chan])
                 );
             end
             
             // Accumulation logic across channels for this filter
+            // Use raw sums from conv_5x5 (Q2.14) for full precision accumulation
+            // Then scale once at the end
+            reg signed [26:0] scaled_result;
+            
             always @(posedge clk) begin
                 if (rst) begin
-                    accumulator <= 20'd0;
+                    accumulator <= 27'sd0;
+                    scaled_result <= 27'sd0;
                     accum_valid <= 1'b0;
+                    conv_valid_d1 <= 1'b0;
+                    for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
+                        conv_raw_sum_held[kk] <= 24'sd0;
+                    end
                 end else begin
-                    // When the first channel's convolution is ready
+                    conv_valid_d1 <= conv_valid[0];
                     if (conv_valid[0]) begin
-                        // DEBUG: print conv2 per-channel results and control to conv2.log
-                        $fdisplay(conv2_log, "FILTER %0d window @(%0d,%0d) conv_valid=%b", f, x_count, y_count, conv_valid);
-                        // DEBUG: print input window data for filter 0, channel 0 only
-                        if (f == 0) begin
-                            $fdisplay(conv2_log, "  WINDOW ch0 data:");
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][0], window_flat[0][1], window_flat[0][2], window_flat[0][3], window_flat[0][4]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][5], window_flat[0][6], window_flat[0][7], window_flat[0][8], window_flat[0][9]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][10], window_flat[0][11], window_flat[0][12], window_flat[0][13], window_flat[0][14]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][15], window_flat[0][16], window_flat[0][17], window_flat[0][18], window_flat[0][19]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", window_flat[0][20], window_flat[0][21], window_flat[0][22], window_flat[0][23], window_flat[0][24]);
-                            $fdisplay(conv2_log, "  WEIGHTS f0_ch0:");
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][0], weight[0][0][1], weight[0][0][2], weight[0][0][3], weight[0][0][4]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][5], weight[0][0][6], weight[0][0][7], weight[0][0][8], weight[0][0][9]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][10], weight[0][0][11], weight[0][0][12], weight[0][0][13], weight[0][0][14]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][15], weight[0][0][16], weight[0][0][17], weight[0][0][18], weight[0][0][19]);
-                            $fdisplay(conv2_log, "    %3d %3d %3d %3d %3d", weight[0][0][20], weight[0][0][21], weight[0][0][22], weight[0][0][23], weight[0][0][24]);
-                        end
                         for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
-                            $fdisplay(conv2_log, "    ch%0d = %0d", kk, conv_result[kk]);
+                            conv_raw_sum_held[kk] <= conv_raw_sum[kk];
                         end
-                        // DEBUG: print bias for this filter
-                        $fdisplay(conv2_log, "    bias = %0d", bias[f]);
-                        // Perform accumulation in one cycle using blocking assignments
-                        accumulator = 20'd0;
-                        // Sum all channel convolutions
+                    end
+                    
+                    // Use held values one cycle later
+                    if (conv_valid_d1) begin
+                        // Perform full precision accumulation in one cycle
+                        accumulator = 27'sd0;
+                        
+                        // Sum all channel raw sums
                         for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
-                            accumulator = accumulator + {{12{conv_result[kk][7]}}, conv_result[kk]};
+                            accumulator = accumulator + {{3{conv_raw_sum_held[kk][23]}}, conv_raw_sum_held[kk]};
                         end
+                        
                         // Add the bias term
-                        accumulator = accumulator + {{12{bias[f][7]}}, bias[f]};
-                        // DEBUG: print final accumulator value
-                        $fdisplay(conv2_log, "    final_acc = %0d", accumulator);
+                        accumulator = accumulator + ($signed({{19{bias[f][7]}}, bias[f]}) << FRAC_BITS);
+                        
+                        // Scale down to Q1.7
+                        scaled_result = accumulator >>> FRAC_BITS;
+                        
                         accum_valid = 1'b1;
                     end else begin
                         accum_valid = 1'b0;
@@ -282,17 +296,18 @@ module conv_layer_2 #(
                 .clk(clk),
                 .rst(rst),
                 .valid_in(accum_valid),
-                .data_in(saturation(accumulator)),
+                .data_in(saturation(scaled_result)),
                 .valid_out(relu_valid_out[f]),
                 .data_out(relu_out[f])
             );
             
-            function signed [7:0] saturation;
-                input signed [19:0] value;
+            // Saturate 27-bit scaled result to 8-bit signed range
+            function automatic signed [7:0] saturation;
+                input signed [26:0] value;
                 begin
-                    if (value > 20'sd127)
+                    if (value > 27'sd127)
                         saturation = 8'sd127;
-                    else if (value < -20'sd128)
+                    else if (value < -27'sd128)
                         saturation = -8'sd128;
                     else
                         saturation = value[7:0];
@@ -336,6 +351,18 @@ module conv_layer_2 #(
             data_out <= {(DATA_WIDTH*OUT_CHANNELS){1'b0}};
             
         end else begin
+            if (valid_out) begin
+                if (x_out == OUT_WIDTH-1) begin
+                    x_out <= 0;
+                    if (y_out == OUT_HEIGHT-1)
+                        y_out <= 0;
+                    else
+                        y_out <= y_out + 1;
+                end else begin
+                    x_out <= x_out + 1;
+                end
+            end
+            
             // Default states
             window_valid <= 1'b0;
             valid_out <= 1'b0;
@@ -355,7 +382,10 @@ module conv_layer_2 #(
                     for (ii = 0; ii < IN_CHANNELS; ii = ii + 1) begin
                         for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
                             for (kk = 0; kk < KERNEL_SIZE; kk = kk + 1) begin
-                                window[ii][jj][kk] <= line_buffer[ii][(y_in - (KERNEL_SIZE-1) + jj) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1) + kk];
+                                if (jj == KERNEL_SIZE-1 && kk == KERNEL_SIZE-1)
+                                    window[ii][jj][kk] <= data_in_channel[ii];
+                                else
+                                    window[ii][jj][kk] <= line_buffer[ii][(y_in - (KERNEL_SIZE-1) + jj) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1) + kk];
                             end
                         end
                     end
@@ -370,12 +400,6 @@ module conv_layer_2 #(
             end
             
             if (relu_valid_out[0]) begin
-                // DEBUG: log final conv2 outputs to conv2.log
-                $fdisplay(conv2_log, "CONV2 OUTPUT @(%0d,%0d)", x_out, y_out);
-                for (ii = 0; ii < OUT_CHANNELS; ii = ii + 1) begin
-                    $fdisplay(conv2_log, "    out%0d = %0d", ii, relu_out[ii]);
-                end
-                $fdisplay(conv2_log, "    packed data_out = %h", data_out);
                 valid_out <= 1'b1;
                 
                 // Pack all filter outputs
@@ -386,17 +410,6 @@ module conv_layer_2 #(
                 // Pack outputs into a single bus
                 for (ii = 0; ii < OUT_CHANNELS; ii = ii + 1) begin
                     data_out[((ii+1)*DATA_WIDTH)-1 -: DATA_WIDTH] <= relu_out[ii];
-                end
-                
-                // Update output coordinates using counters
-                if (x_out == OUT_WIDTH-1) begin
-                    x_out <= 0;
-                    if (y_out == OUT_HEIGHT-1)
-                        y_out <= 0;
-                    else
-                        y_out <= y_out + 1;
-                end else begin
-                    x_out <= x_out + 1;
                 end
             end
         end

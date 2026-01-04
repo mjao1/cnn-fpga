@@ -40,9 +40,10 @@ module flatten #(
                 if (valid_in) begin
                     // For the current valid_in event, which corresponds to one coordinate of the 4x4 grid,
                     // store each channel's value into flat_mem at the proper offset.
-                    // The address for channel i is: (i * (IN_WIDTH*IN_HEIGHT)) + flatten_count
+                    // Position major order: all 16 channels
+                    // Address = position * 16 + channel
                     for(i = 0; i < IN_CHANNELS; i = i + 1) begin
-                        flat_mem[i*16 + flatten_count] <= data_in[((i+1)*DATA_WIDTH)-1 -: DATA_WIDTH];
+                        flat_mem[flatten_count*16 + i] <= data_in[((i+1)*DATA_WIDTH)-1 -: DATA_WIDTH];
                     end
                     if (flatten_count == 16 - 1) begin
                         flatten_done <= 1'b1;

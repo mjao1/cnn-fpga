@@ -15,7 +15,7 @@ module conv2_weight_mem #(
     output wire [DATA_WIDTH-1:0] weight_out
 );
 
-    localparam ADDR_WIDTH = 11;  // ceil(log2(NUM_FILTERS * IN_CHANNELS * KERNEL_SIZE * KERNEL_SIZE))
+    localparam ADDR_WIDTH = 12;  // ceil(log2(16 * 6 * 25 = 2400)) = 12 bits (4096 > 2400)
     localparam DEPTH = NUM_FILTERS * IN_CHANNELS * KERNEL_SIZE * KERNEL_SIZE;
     
     // Address based on indices
@@ -29,7 +29,7 @@ module conv2_weight_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("conv2_weights.mem")
+        .MEM_INIT_FILE("weights_mem/conv2_weights.mem")
     ) weight_mem (
         .clk(clk),
         .rst(rst),

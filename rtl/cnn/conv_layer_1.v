@@ -10,7 +10,8 @@ module conv_layer_1 #(
     parameter OUT_HEIGHT = 24,    // Output feature map height (28-5+1)
     parameter NUM_FILTERS = 6,    // Number of filters in first layer of LeNet-5
     parameter KERNEL_SIZE = 5,    // Kernel size (5x5)
-    parameter DATA_WIDTH = 8      // Data width (8-bit fixed point)
+    parameter DATA_WIDTH = 8,     // Data width (8-bit fixed point)
+    parameter FRAC_BITS = 7       // Q1.7 format
 )(
     input wire clk,
     input wire rst,
@@ -45,11 +46,14 @@ module conv_layer_1 #(
     
     integer ii, jj, kk;
     
-    localparam INIT = 2'b00;
-    localparam LOAD_WEIGHTS = 2'b01;
-    localparam RUNNING = 2'b10;
+    localparam INIT = 3'b000;
+    localparam LOAD_WEIGHTS_ADDR = 3'b001;  // Set address, wait for BRAM
+    localparam LOAD_WEIGHTS_DATA = 3'b010;  // Store data, advance to next
+    localparam LOAD_BIAS_ADDR = 3'b011;     // Set bias address
+    localparam LOAD_BIAS_DATA = 3'b100;     // Store bias
+    localparam RUNNING = 3'b101;
     
-    reg [1:0] state;
+    reg [2:0] state;
     reg [7:0] current_filter;
     reg [7:0] current_kernel;
     reg load_bias;
@@ -74,6 +78,7 @@ module conv_layer_1 #(
     );
     
     // Weight loading state machine
+    // Two phase loading: set address, wait for BRAM, then store data
     always @(posedge clk) begin
         if (rst) begin
             state <= INIT;
@@ -90,35 +95,48 @@ module conv_layer_1 #(
         end else begin
             case (state)
                 INIT: begin
-                    state <= LOAD_WEIGHTS;
+                    // Start loading, address is set by current_filter/current_kernel
+                    state <= LOAD_WEIGHTS_ADDR;
                     current_filter <= 8'd0;
                     current_kernel <= 8'd0;
                     load_bias <= 1'b0;
                 end
                 
-                LOAD_WEIGHTS: begin
-                    if (!load_bias) begin
-                        // Store weight
-                        weight[current_filter][current_kernel] <= loaded_weight;
-                        
-                        // Move to next weight
-                        if (current_kernel == KERNEL_SIZE*KERNEL_SIZE-1) begin
-                            current_kernel <= 8'd0;
-                            load_bias <= 1'b1;
-                        end else begin
-                            current_kernel <= current_kernel + 8'd1;
-                        end
+                LOAD_WEIGHTS_ADDR: begin
+                    // Address is set, wait one cycle for BRAM to output data
+                    state <= LOAD_WEIGHTS_DATA;
+                end
+                
+                LOAD_WEIGHTS_DATA: begin
+                    // BRAM output is valid, store weight
+                    weight[current_filter][current_kernel] <= loaded_weight;
+                    
+                    // Move to next weight
+                    if (current_kernel == KERNEL_SIZE*KERNEL_SIZE-1) begin
+                        current_kernel <= 8'd0;
+                        state <= LOAD_BIAS_ADDR;
                     end else begin
-                        // Store  bias
-                        bias[current_filter] <= loaded_bias;
-                        
-                        // Move to next filter
-                        if (current_filter == NUM_FILTERS-1) begin
-                            state <= RUNNING;
-                        end else begin
-                            current_filter <= current_filter + 8'd1;
-                            load_bias <= 1'b0;
-                        end
+                        current_kernel <= current_kernel + 8'd1;
+                        state <= LOAD_WEIGHTS_ADDR;
+                    end
+                end
+                
+                LOAD_BIAS_ADDR: begin
+                    // Wait for bias BRAM output
+                    state <= LOAD_BIAS_DATA;
+                end
+                
+                LOAD_BIAS_DATA: begin
+                    // Store  bias
+                    bias[current_filter] <= loaded_bias;
+                    
+                    // Move to next filter
+                    if (current_filter == NUM_FILTERS-1) begin
+                        state <= RUNNING;
+                    end else begin
+                        current_filter <= current_filter + 8'd1;
+                        current_kernel <= 8'd0;
+                        state <= LOAD_WEIGHTS_ADDR;
                     end
                 end
                 
@@ -145,7 +163,9 @@ module conv_layer_1 #(
     generate
         genvar gf;
         for (gf = 0; gf < NUM_FILTERS; gf = gf + 1) begin : conv_units
-            conv_5x5 conv_inst (
+            conv_5x5 #(
+                .FRAC_BITS(FRAC_BITS)
+            ) conv_inst (
                 .clk(clk),
                 .rst(rst),
                 .valid_in(window_valid && (state == RUNNING)),
@@ -175,7 +195,8 @@ module conv_layer_1 #(
                 .bias(bias[gf]),
 
                 .valid_out(valid_conv[gf]),
-                .data_out(conv_out[gf])
+                .data_out(conv_out[gf]),
+                .raw_sum()
             );
         end
     endgenerate
@@ -226,16 +247,7 @@ module conv_layer_1 #(
                 end
             end
         end else begin
-            valid_out <= (state == RUNNING) && relu_valid[0];
-            
-            if ((state == RUNNING) && relu_valid[0]) begin
-                data_out_0 <= relu_out[0];
-                data_out_1 <= relu_out[1];
-                data_out_2 <= relu_out[2];
-                data_out_3 <= relu_out[3];
-                data_out_4 <= relu_out[4];
-                data_out_5 <= relu_out[5];
-                
+            if (valid_out) begin
                 if (x_out == OUT_WIDTH - 1) begin
                     x_out <= 9'd0;
                     if (y_out == OUT_HEIGHT - 1)
@@ -247,6 +259,17 @@ module conv_layer_1 #(
                 end
             end
             
+            valid_out <= (state == RUNNING) && relu_valid[0];
+            
+            if ((state == RUNNING) && relu_valid[0]) begin
+                data_out_0 <= relu_out[0];
+                data_out_1 <= relu_out[1];
+                data_out_2 <= relu_out[2];
+                data_out_3 <= relu_out[3];
+                data_out_4 <= relu_out[4];
+                data_out_5 <= relu_out[5];
+            end
+            
             // Process input data and update window
             if (valid_in) begin
                 line_buffer[y_in % KERNEL_SIZE][x_in] <= data_in;
@@ -254,31 +277,23 @@ module conv_layer_1 #(
                 if (y_in >= KERNEL_SIZE - 1 && x_in >= KERNEL_SIZE - 1) begin
                     for (ii = 0; ii < KERNEL_SIZE; ii = ii + 1) begin
                         for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
-                            window[ii][jj] <= line_buffer[(y_in - (KERNEL_SIZE-1-ii)) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1-jj)];
+                            if (ii == KERNEL_SIZE-1 && jj == KERNEL_SIZE-1)
+                                window[ii][jj] <= data_in;
+                            else
+                                window[ii][jj] <= line_buffer[(y_in - (KERNEL_SIZE-1-ii)) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1-jj)];
                         end
                     end
                     window_valid <= 1'b1;
                 end else begin
                     window_valid <= 1'b0;
                 end
-                
-                // Line buffer handling
+
                 if (x_in == IMG_WIDTH - 1) begin
                     y_count <= y_count + 9'd1;
-
-                    if (y_count >= KERNEL_SIZE - 1) begin
-                        for (ii = 0; ii < KERNEL_SIZE - 1; ii = ii + 1) begin
-                            for (jj = 0; jj < IMG_WIDTH; jj = jj + 1) begin
-                                line_buffer[ii][jj] <= line_buffer[ii+1][jj];
-                            end
-                        end
-                    end
-                end
-                
-                if (x_in == IMG_WIDTH - 1)
                     x_count <= 9'd0;
-                else
+                end else begin
                     x_count <= x_count + 9'd1;
+                end
             end else begin
                 window_valid <= 1'b0;
             end

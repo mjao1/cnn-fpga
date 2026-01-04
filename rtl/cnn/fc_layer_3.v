@@ -5,7 +5,8 @@
 module fc_layer_3 #(
     parameter IN_FEATURES = 84,     // Input features from FC2
     parameter OUT_FEATURES = 10,    // Output neurons (digits 0-9)
-    parameter DATA_WIDTH = 8        // Data width (8-bit fixed point)
+    parameter DATA_WIDTH = 8,       // Data width (8-bit fixed point)
+    parameter FRAC_BITS = 7
 )(
     input wire clk,
     input wire rst,
@@ -21,6 +22,7 @@ module fc_layer_3 #(
     // States
     localparam IDLE = 3'b000;         // Waiting for input
     localparam LOAD = 3'b001;         // Loading input features
+    localparam WAIT_WEIGHT = 3'b101;  // Wait for first weight from BRAM
     localparam COMPUTE = 3'b010;      // Compute one neuron
     localparam NEXT_NEURON = 3'b011;  // Move to next neuron
     localparam DONE = 3'b100;         // All neurons processed
@@ -28,22 +30,18 @@ module fc_layer_3 #(
     reg [2:0] state;
     reg [3:0] current_neuron;
     reg [6:0] current_input;
+    reg [6:0] compute_input_idx;  // Delayed index for pipelined MAC
     
     reg [DATA_WIDTH-1:0] input_buffer [0:IN_FEATURES-1];
     reg [IN_FEATURES-1:0] input_valid;
     
-    reg signed [19:0] accumulator;
+    reg signed [23:0] accumulator;
     
     wire [DATA_WIDTH-1:0] weight;
     wire [DATA_WIDTH-1:0] bias;
     
     reg [$clog2(IN_FEATURES):0] valid_count;
     reg process_ready;
-    
-    // Quantization shift for FC3 to match golden outputs
-    localparam integer FC3_SHIFT = 15;
-    localparam signed [19:0] FC3_SAT_MAX = 20'sd127 <<< FC3_SHIFT;
-    localparam signed [19:0] FC3_SAT_MIN = -20'sd128 <<< FC3_SHIFT;
     
     weight_loader #(
         .DATA_WIDTH(DATA_WIDTH)
@@ -61,16 +59,19 @@ module fc_layer_3 #(
         .bias_out(bias)
     );
     
-    // Saturation function
-    function signed [7:0] saturate;
-        input signed [19:0] value;
+    // Scale and saturate function
+    function automatic signed [7:0] scale_and_saturate;
+        input signed [23:0] acc_value;
+        reg signed [23:0] scaled;
         begin
-            if (value > FC3_SAT_MAX)
-                saturate = 8'sd127;
-            else if (value < FC3_SAT_MIN)
-                saturate = -8'sd128;
+            scaled = acc_value >>> FRAC_BITS;
+            
+            if (scaled > 24'sd127)
+                scale_and_saturate = 8'sd127;
+            else if (scaled < -24'sd128)
+                scale_and_saturate = -8'sd128;
             else
-                saturate = value[FC3_SHIFT+7:FC3_SHIFT];
+                scale_and_saturate = scaled[7:0];
         end
     endfunction
     
@@ -81,6 +82,7 @@ module fc_layer_3 #(
             state <= IDLE;
             current_neuron <= 4'd0;
             current_input <= 7'd0;
+            compute_input_idx <= 7'd0;
             valid_out <= 1'b0;
             data_out <= 8'd0;
             neuron_idx <= 4'd0;
@@ -122,24 +124,30 @@ module fc_layer_3 #(
                 end
                 
                 LOAD: begin
-                    accumulator <= {{12{bias[7]}}, bias};
+                    state <= WAIT_WEIGHT;
+                end
+                
+                WAIT_WEIGHT: begin
+                    accumulator <= {{16{bias[7]}}, bias} << FRAC_BITS;
+                    compute_input_idx <= current_input;
+                    current_input <= current_input + 7'd1;
                     state <= COMPUTE;
                 end
                 
                 COMPUTE: begin
-                    // MAC operation (accumulator + weight * input)
-                    accumulator <= accumulator + $signed(weight) * $signed(input_buffer[current_input]);
+                    accumulator <= accumulator + $signed(weight) * $signed(input_buffer[compute_input_idx]);
                     
-                    if (current_input == IN_FEATURES - 1) begin
+                    if (compute_input_idx == IN_FEATURES - 1) begin
                         state <= NEXT_NEURON;
                     end else begin
+                        compute_input_idx <= current_input;
                         current_input <= current_input + 7'd1;
                     end
                 end
                 
                 NEXT_NEURON: begin
                     valid_out <= 1'b1;
-                    data_out <= saturate(accumulator);
+                    data_out <= scale_and_saturate(accumulator);
                     neuron_idx <= current_neuron;
                     // Move to next neuron or finish
                     if (current_neuron == OUT_FEATURES - 1) begin
@@ -147,6 +155,7 @@ module fc_layer_3 #(
                     end else begin
                         current_neuron <= current_neuron + 4'd1;
                         current_input <= 7'd0;
+                        compute_input_idx <= 7'd0;
                         state <= LOAD;
                     end
                 end

@@ -3,6 +3,9 @@
 LeNet-5 Training Script for MNIST Digit Recognition:
 Trains a LeNet-5 CNN on the MNIST dataset and exports
 the weights in MEM format for BRAM initialization.
+
+FPGA Quantization:
+- Uses uniform Q1.7 fixed-point format (FRAC_BITS=7, scale=128)
 """
 
 import os
@@ -13,6 +16,15 @@ import matplotlib.pyplot as plt
 
 os.makedirs('weights_mem', exist_ok=True)
 os.makedirs('python/plots', exist_ok=True)
+
+FRAC_BITS = 7
+FIXED_SCALE = float(2 ** FRAC_BITS)
+
+# Set to True for uniform scaling, False for per-layer power-of-two scaling
+USE_UNIFORM_SCALE = True
+
+# FC layer scaling factor to prevent output saturation
+FC_SCALE_FACTOR = 2.0
 
 def create_lenet5_model():
     """Create the LeNet-5 model architecture."""
@@ -43,25 +55,56 @@ def create_lenet5_model():
     
     return model
 
+def quantize_weights_fpga(weights, frac_bits=FRAC_BITS, use_uniform=USE_UNIFORM_SCALE):
+    """
+    Quantize weights to FPGA-friendly fixed-point representation.
+    Args:
+        weights: numpy array of floating-point weights
+        frac_bits: number of fractional bits (7 for Q1.7, 6 for Q2.6)
+        use_uniform: if True, use fixed scale; if False, use power of two
+    
+    Returns:
+        quantized: int8 numpy array of quantized weights
+        scale: scale factor used
+        frac_bits: the fractional bits used (for FRAC_BITS parameter)
+    """
+    if use_uniform:
+        scale = float(2 ** frac_bits)
+    else:
+        max_abs_val = np.max(np.abs(weights))
+        if max_abs_val == 0:
+            return np.zeros_like(weights, dtype=np.int8), 1.0, frac_bits
+        
+        # Find nearest power of two that keeps max value within int8 range
+        raw_scale = 127.0 / max_abs_val
+        frac_bits = int(np.round(np.log2(raw_scale)))
+        frac_bits = max(0, min(frac_bits, 15))
+        scale = float(2 ** frac_bits)
+    
+    quantized_float = np.round(weights * scale)
+    
+    # Clip to int8 range
+    clipped = np.clip(quantized_float, -128, 127)
+    num_clipped = np.sum(np.abs(quantized_float - clipped) > 0)
+    if num_clipped > 0:
+        print(f"    WARNING: {num_clipped} values clipped to int8 range")
+    
+    quantized = clipped.astype(np.int8)
+    
+    return quantized, scale, frac_bits
+
+
 def quantize_weights(weights, bits=8):
     """
-    Quantize weights to fixed-point representation with specified bits.
-    For 8-bit signed integers, the range is [-128, 127].
+    Old wrapper for backward compatibility, uses FPGA friendly quantization now.
     """
-    max_abs_val = np.max(np.abs(weights))
-    
-    if max_abs_val == 0:
-        return np.zeros_like(weights, dtype=np.int8)
-    
-    scale = 127.0 / max_abs_val
-    
-    quantized = np.round(weights * scale).astype(np.int8)
-    
+    quantized, scale, _ = quantize_weights_fpga(weights)
     return quantized, scale
 
 def export_weights_to_mem(model):
     """
-    Export weights as .mem files for Vivado BRAM initialization
+    Export weights as .mem files
+    - Uniform Q1.7 format (FRAC_BITS=7, scale=128) across all layers
     """
     layer_to_module_name = {
         0: "conv1",
@@ -70,6 +113,12 @@ def export_weights_to_mem(model):
         6: "fc2",
         7: "fc3"
     }
+    
+    # Track quantization info for each layer
+    quant_info = {}
+    
+    print(f"\nQuantization config: FRAC_BITS={FRAC_BITS}, SCALE={FIXED_SCALE}")
+    print(f"Mode: {'Uniform scaling' if USE_UNIFORM_SCALE else 'Per-layer power-of-two scaling'}\n")
     
     for i, layer in enumerate(model.layers):
         weights = layer.get_weights()
@@ -87,7 +136,14 @@ def export_weights_to_mem(model):
         # Use module name for the weight files
         module_name = layer_to_module_name[i]
         
-        quantized_weights, weight_scale = quantize_weights(weight_values)
+        print(f"Processing {module_name}:")
+        print(f"  Weights shape: {weight_values.shape}")
+        print(f"  Weights range: [{weight_values.min():.4f}, {weight_values.max():.4f}]")
+        
+        # Quantize weights
+        quantized_weights, weight_scale, used_frac_bits = quantize_weights_fpga(weight_values)
+        
+        print(f"  Weight scale: {weight_scale} (FRAC_BITS={used_frac_bits})")
         
         if isinstance(layer, layers.Conv2D):
             k_h, k_w, in_c, out_c = quantized_weights.shape
@@ -106,9 +162,12 @@ def export_weights_to_mem(model):
             
             # Export biases
             if bias_values is not None:
-                quantized_biases, bias_scale = quantize_weights(bias_values)
-                bias_mem = f"weights_mem/{module_name}_biases.mem"
+                print(f"  Biases range: [{bias_values.min():.4f}, {bias_values.max():.4f}]")
                 
+                quantized_biases = np.round(bias_values * weight_scale).astype(np.int8)
+                quantized_biases = np.clip(quantized_biases, -128, 127).astype(np.int8)
+                
+                bias_mem = f"weights_mem/{module_name}_biases.mem"
                 with open(bias_mem, 'w') as f:
                     for bias in quantized_biases:
                         bias_val = int(bias)
@@ -117,29 +176,65 @@ def export_weights_to_mem(model):
                         f.write("{:02X}\n".format(bias_val & 0xFF))
         
         elif isinstance(layer, layers.Dense):
+            # Apply FC scaling factor to prevent output saturation
+            if FC_SCALE_FACTOR != 1.0:
+                print(f"  Applying FC_SCALE_FACTOR={FC_SCALE_FACTOR} to prevent saturation")
+                scaled_weights = weight_values / FC_SCALE_FACTOR
+                scaled_biases = bias_values / FC_SCALE_FACTOR if bias_values is not None else None
+                quantized_weights, weight_scale, used_frac_bits = quantize_weights_fpga(scaled_weights)
+            else:
+                scaled_biases = bias_values
+            
             in_features, out_features = quantized_weights.shape
             
             # Export weights
             mem_file = f"weights_mem/{module_name}_weights.mem"
             with open(mem_file, 'w') as f:
                 for o in range(out_features):
-                    for i in range(in_features):
-                        weight = int(quantized_weights[i, o])
+                    for inp in range(in_features):
+                        weight = int(quantized_weights[inp, o])
                         if weight < 0:
                             weight = 256 + weight  # 2's complement for 8-bit
                         f.write("{:02X}\n".format(weight & 0xFF))
             
             # Export biases
-            if bias_values is not None:
-                quantized_biases, bias_scale = quantize_weights(bias_values)
-                bias_mem = f"weights_mem/{module_name}_biases.mem"
+            if scaled_biases is not None:
+                print(f"  Biases range: [{scaled_biases.min():.4f}, {scaled_biases.max():.4f}]")
                 
+                quantized_biases = np.round(scaled_biases * weight_scale).astype(np.int8)
+                quantized_biases = np.clip(quantized_biases, -128, 127).astype(np.int8)
+                
+                bias_mem = f"weights_mem/{module_name}_biases.mem"
                 with open(bias_mem, 'w') as f:
                     for bias in quantized_biases:
                         bias_val = int(bias)
                         if bias_val < 0:
-                            bias_val = 256 + bias_val  # 2's complement for 8-bit
+                            bias_val = 256 + bias_val
                         f.write("{:02X}\n".format(bias_val & 0xFF))
+        
+        # Store quantization info for this layer
+        quant_info[module_name] = {
+            'frac_bits': used_frac_bits,
+            'scale': weight_scale,
+            'weight_range': (weight_values.min(), weight_values.max()),
+            'bias_range': (bias_values.min(), bias_values.max()) if bias_values is not None else None
+        }
+        print()
+    
+    # Export quantization for RTL reference
+    info_file = "weights_mem/quantization_info.txt"
+    with open(info_file, 'w') as f:
+        f.write("# FPGA Quantization Configuration\n")
+        f.write(f"# Generated with FRAC_BITS={FRAC_BITS}, SCALE={FIXED_SCALE}\n")
+        f.write(f"# Mode: {'Uniform' if USE_UNIFORM_SCALE else 'Power-of-two per layer'}\n\n")
+        for layer_name, info in quant_info.items():
+            f.write(f"{layer_name}:\n")
+            f.write(f"  frac_bits: {info['frac_bits']}\n")
+            f.write(f"  scale: {info['scale']}\n")
+            f.write(f"  weight_range: {info['weight_range']}\n")
+            f.write(f"  bias_range: {info['bias_range']}\n\n")
+    
+    print(f"Quantization info saved to {info_file}")
 
 def visualize_model(model, history):
     """

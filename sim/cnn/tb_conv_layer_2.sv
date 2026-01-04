@@ -9,7 +9,11 @@ module tb_conv_layer_2;
     parameter OUT_CHANNELS = 16;
     parameter KERNEL_SIZE = 5;
     parameter DATA_WIDTH = 8;
+    parameter FRAC_BITS = 7;
     parameter CLK_PERIOD = 10;
+    
+    localparam INPUT_SIZE = MAP_WIDTH * MAP_HEIGHT * IN_CHANNELS;   // 864
+    localparam OUTPUT_SIZE = OUT_WIDTH * OUT_HEIGHT * OUT_CHANNELS; // 1024
     
     reg clk;
     reg rst;
@@ -23,7 +27,11 @@ module tb_conv_layer_2;
     wire [7:0] x_out;
     wire [7:0] y_out;
     
-    reg [DATA_WIDTH-1:0] test_feature_maps [0:IN_CHANNELS-1][0:MAP_HEIGHT-1][0:MAP_WIDTH-1];
+    // Input data storage
+    reg [DATA_WIDTH-1:0] input_flat [0:INPUT_SIZE-1];
+    
+    // Expected output storage
+    reg [DATA_WIDTH-1:0] expected_flat [0:OUTPUT_SIZE-1];
     
     reg [DATA_WIDTH-1:0] data_in_channel [0:IN_CHANNELS-1];
     wire [DATA_WIDTH-1:0] data_out_channel [0:OUT_CHANNELS-1];
@@ -46,23 +54,14 @@ module tb_conv_layer_2;
         end
     endgenerate
     
-    integer i, j, k, ic, oc, m;
-    integer sum;
+    integer i, j, ic, oc;
+    integer match_count, mismatch_count;
     
-    localparam WEIGHT_LOAD_CYCLES = (OUT_CHANNELS * (IN_CHANNELS * KERNEL_SIZE*KERNEL_SIZE + 1)) + 20;
-    
-    wire [1:0] state_debug;
-    wire [7:0] current_filter_debug;
-    wire [7:0] current_channel_debug;
-    wire [7:0] current_kernel_debug;
-    wire load_bias_debug;
-    wire signed [DATA_WIDTH-1:0] loaded_weight_debug;
-    wire signed [DATA_WIDTH-1:0] loaded_bias_debug;
-    wire window_valid_debug;
-    
-    wire signed [DATA_WIDTH-1:0] weight_debug [0:OUT_CHANNELS-1][0:IN_CHANNELS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
-    wire signed [DATA_WIDTH-1:0] bias_debug [0:OUT_CHANNELS-1];
-    wire signed [19:0] channel_acc_debug [0:OUT_CHANNELS-1];
+    // 2 phase loading: each weight/bias takes 2 cycles (ADDR, DATA)
+    // Weights per filter: 6 * 25 = 150 weights, 300 cycles
+    // Bias: 2 cycles (ADDR + DATA)
+    // Total per filter: 302 cycles, 16 filters = 4832 cycles
+    localparam WEIGHT_LOAD_CYCLES = (OUT_CHANNELS * (IN_CHANNELS * KERNEL_SIZE*KERNEL_SIZE * 2 + 2)) + 50;
     
     conv_layer_2 #(
         .MAP_WIDTH(MAP_WIDTH),
@@ -72,7 +71,8 @@ module tb_conv_layer_2;
         .IN_CHANNELS(IN_CHANNELS),
         .OUT_CHANNELS(OUT_CHANNELS),
         .KERNEL_SIZE(KERNEL_SIZE),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .FRAC_BITS(FRAC_BITS)
     ) uut (
         .clk(clk),
         .rst(rst),
@@ -86,145 +86,94 @@ module tb_conv_layer_2;
         .y_out(y_out)
     );
     
-    assign state_debug = uut.state;
-    assign current_filter_debug = uut.current_filter;
-    assign current_channel_debug = uut.current_channel;
-    assign current_kernel_debug = uut.current_kernel;
-    assign load_bias_debug = uut.load_bias;
-    assign loaded_weight_debug = uut.loaded_weight;
-    assign loaded_bias_debug = uut.loaded_bias;
-    assign window_valid_debug = uut.window_valid;
-    
     initial begin
         clk = 0;
         forever #(CLK_PERIOD/2) clk = ~clk;
     end
     
-    // Test
+    // Main test
     initial begin
         rst = 1;
         valid_in = 0;
         x_in = 0;
         y_in = 0;
+        match_count = 0;
+        mismatch_count = 0;
         
         for (ic = 0; ic < IN_CHANNELS; ic = ic + 1) begin
             data_in_channel[ic] = 0;
         end
         
-        // Initialize test feature maps with a simple pattern
-        for (ic = 0; ic < IN_CHANNELS; ic = ic + 1) begin
-            for (i = 0; i < MAP_HEIGHT; i = i + 1) begin
-                for (j = 0; j < MAP_WIDTH; j = j + 1) begin
-                    test_feature_maps[ic][i][j] = 0;
-                    
-                    if (i >= 5 && i < 7 && j >= 5 && j < 7) begin
-                        test_feature_maps[ic][i][j] = (8'd50 * (ic + 1));
-                    end
-                    
-                    if ((i == 1 && j == 1) || (i == 1 && j == MAP_WIDTH-2) || 
-                        (i == MAP_HEIGHT-2 && j == 1) || (i == MAP_HEIGHT-2 && j == MAP_WIDTH-2)) begin
-                        test_feature_maps[ic][i][j] = (8'd100 * (ic + 1));
-                    end
-                end
-            end
-        end
+        // Load input image and expected outputs
+        $readmemh("sim/cnn/pool1_input.mem", input_flat);
+        $readmemh("sim/cnn/conv2_expected.mem", expected_flat);
         
         $display("=== Convolutional Layer 2 Testbench ===");
-        $display("Testing %0d filters on %0d input channels of size %0dx%0d", OUT_CHANNELS, IN_CHANNELS, MAP_WIDTH, MAP_HEIGHT);
-        $display("Output feature maps will be %0dx%0d", OUT_WIDTH, OUT_HEIGHT);
-        $display("Weight loading will take approximately %0d cycles", WEIGHT_LOAD_CYCLES);
-        
-        for (ic = 0; ic < IN_CHANNELS; ic = ic + 1) begin
-            $display("\n=== Test Pattern for Input Channel %0d ===", ic);
-            for (i = 0; i < MAP_HEIGHT; i = i + 1) begin
-                for (j = 0; j < MAP_WIDTH; j = j + 1) begin
-                    if (test_feature_maps[ic][i][j] == 0)
-                        $write("  . ");
-                    else
-                        $write("%3d ", test_feature_maps[ic][i][j]);
-                end
-                $write("\n");
-            end
-        end
+        $display("Input: %0dx%0dx%0d from pool1, Output: %0dx%0dx%0d", 
+                 MAP_WIDTH, MAP_HEIGHT, IN_CHANNELS, OUT_WIDTH, OUT_HEIGHT, OUT_CHANNELS);
         
         #100;
         rst = 0;
         
         #(CLK_PERIOD * WEIGHT_LOAD_CYCLES);
         
-        $display("\n=== Weight Loading Complete ===");
-        $display("\nStarting feature map processing...");
+        $display("Weight loading complete, starting inference...");
         
-        // Feed in the test feature maps
+        // Feed in the input image
         for (i = 0; i < MAP_HEIGHT; i = i + 1) begin
             for (j = 0; j < MAP_WIDTH; j = j + 1) begin
                 x_in = j;
                 y_in = i;
                 
                 for (ic = 0; ic < IN_CHANNELS; ic = ic + 1) begin
-                    data_in_channel[ic] = test_feature_maps[ic][i][j];
+                    data_in_channel[ic] = input_flat[ic * (MAP_WIDTH * MAP_HEIGHT) + i * MAP_WIDTH + j];
                 end
                 
                 valid_in = 1;
-                
                 @(posedge clk);
-                
-                if (i >= KERNEL_SIZE-1 && j >= KERNEL_SIZE-1 && i < MAP_HEIGHT && j < MAP_WIDTH) begin
-                    if ((i == KERNEL_SIZE-1 && j == KERNEL_SIZE-1) || 
-                        (i == MAP_HEIGHT/2 && j == MAP_WIDTH/2) || 
-                        (i == MAP_HEIGHT-KERNEL_SIZE && j == MAP_WIDTH-KERNEL_SIZE)) begin
-                        
-                        $display("\n=== Window at position (%0d,%0d) ===", j, i);
-                        $display("Window Valid: %0d", window_valid_debug);
-                        
-                        for (ic = 0; ic < 2; ic = ic + 1) begin
-                            $display("Channel %0d window:", ic);
-                            for (k = 0; k < KERNEL_SIZE; k = k + 1) begin
-                                for (m = 0; m < KERNEL_SIZE; m = m + 1) begin
-                                    $write("%3d ", uut.window[ic][k][m]);
-                                end
-                                $write("\n");
-                            end
-                        end
-                    end
-                end
+                #1;
             end
         end
         
         valid_in = 0;
         
-        repeat (MAP_WIDTH + KERNEL_SIZE*2) @(posedge clk);
+        // Wait for pipeline to flush
+        repeat (100) @(posedge clk);
         
-        $display("\nTest completed");
+        $display("\n=== Test Summary ===");
+        $display("Total outputs: %0d", match_count + mismatch_count);
+        $display("Matches: %0d, Mismatches: %0d", match_count, mismatch_count);
         $finish;
     end
     
+    // Output checker
     integer output_count;
+    reg [DATA_WIDTH-1:0] expected_val;
+    reg [DATA_WIDTH-1:0] actual_val;
+    integer exp_idx;
+    
     initial begin
         output_count = 0;
-        @(posedge valid_out);
-        $display("First output detected at time %0t", $time);
+        @(negedge rst);
         
         forever begin
             @(posedge clk);
             if (valid_out) begin
-                output_count = output_count + 1;
-                
-                if (output_count < 20 || (x_out % 4 == 0 && y_out % 4 == 0)) begin
-                    $write("Output at (%0d,%0d): ", x_out, y_out);
+                for (oc = 0; oc < OUT_CHANNELS; oc = oc + 1) begin
+                    exp_idx = oc * (OUT_WIDTH * OUT_HEIGHT) + y_out * OUT_WIDTH + x_out;
+                    expected_val = expected_flat[exp_idx];
+                    actual_val = data_out_channel[oc];
                     
-                    for (oc = 0; oc < 4; oc = oc + 1) begin
-                        $write("F%0d=%0d, ", oc, $signed(data_out_channel[oc]));
+                    if (actual_val == expected_val) begin
+                        match_count = match_count + 1;
+                    end else begin
+                        mismatch_count = mismatch_count + 1;
+                        $display("MISMATCH @(%0d,%0d) ch%0d: expected=%0d, actual=%0d", 
+                                 x_out, y_out, oc, $signed(expected_val), $signed(actual_val));
                     end
-                    
-                    $write("... ");
-                    
-                    for (oc = OUT_CHANNELS-2; oc < OUT_CHANNELS; oc = oc + 1) begin
-                        $write("F%0d=%0d, ", oc, $signed(data_out_channel[oc]));
-                    end
-                    
-                    $write("\n");
                 end
+                
+                output_count = output_count + 1;
             end
         end
     end

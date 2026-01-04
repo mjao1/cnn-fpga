@@ -3,6 +3,10 @@
 LeNet-5 Inference and Debug Script for FPGA CNN Implementation:
 Loads the trained LeNet-5 model, runs inference on a test digit,
 and dumps intermediate layer outputs for RTL verification.
+
+FPGA Quantization:
+- Uses uniform Q1.7 fixed-point format (FRAC_BITS=7, scale=128)
+- Golden vectors are quantized using the same format as RTL weights
 """
 
 import os
@@ -10,7 +14,15 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import models
 import matplotlib.pyplot as plt
-from train_lenet5 import create_lenet5_model, quantize_weights
+from train_lenet5 import (
+    create_lenet5_model, 
+    quantize_weights, 
+    quantize_weights_fpga,
+    FRAC_BITS, 
+    FIXED_SCALE,
+    USE_UNIFORM_SCALE,
+    FC_SCALE_FACTOR
+)
 
 os.makedirs('golden_vectors', exist_ok=True)
 
@@ -37,14 +49,208 @@ def load_test_image(image_path=None):
     
     return image, expected_label
 
-def export_raw_image(image, filename='golden_vectors/input_image.txt'):
-    """Export raw image pixel values for RTL simulation."""
-    # Scale back to 0-255 range and convert to int
-    pixels = (image * 255).astype(np.uint8)
+def export_quantized_image(image, filename='golden_vectors/input_image.txt'):
+    """
+    Export image quantized to Q1.7 format for RTL simulation.
+    
+    Q1.7 format: 1 sign bit, 7 fractional bits
+    - Normalized input [0, 1] maps to Q1.7 values [0, 127]
+    - This matches the format used for weights in hardware
+    """
+    # Quantize normalized [0, 1] to Q1.7 [0, 127]
+    quantized = np.clip(np.round(image * 127), 0, 127).astype(np.int8)
+    
     with open(filename, 'w') as f:
-        for row in pixels:
+        for row in quantized:
             for pixel in row:
                 f.write(f"{pixel}\n")
+    
+    # Export as .mem file for Verilog $readmemh
+    mem_filename = 'sim/cnn/input_image.mem'
+    with open(mem_filename, 'w') as f:
+        for row in quantized:
+            for pixel in row:
+                val = int(pixel)
+                if val < 0:
+                    val = 256 + val
+                f.write(f"{val:02X}\n")
+    
+    print(f"  Q1.7 quantized image: range [{quantized.min()}, {quantized.max()}]")
+    print(f"  Saved to {filename} and {mem_filename}")
+    
+    return quantized
+
+def quantized_conv2d(inputs, weights, biases, frac_bits=FRAC_BITS):
+    """
+    Simulate Q1.7 fixed-point convolution matching hardware behavior.
+    - Input: Q1.7 format (already quantized)
+    - Weights: Q1.7 format (loaded from quantized weights)
+    - Products: Q2.14 format (no intermediate shift)
+    - Output: Q1.7 format (shift by FRAC_BITS at end)
+    """
+    import scipy.signal
+    
+    batch, height, width, in_channels = inputs.shape
+    kernel_h, kernel_w, _, out_channels = weights.shape
+    out_height = height - kernel_h + 1
+    out_width = width - kernel_w + 1
+    
+    # Output array
+    outputs = np.zeros((batch, out_height, out_width, out_channels), dtype=np.int8)
+    
+    for b in range(batch):
+        for oc in range(out_channels):
+            # Accumulator in wide precision (simulates 24-bit accumulator)
+            acc = np.zeros((out_height, out_width), dtype=np.int32)
+            
+            for ic in range(in_channels):
+                # Get kernel for this input/output channel
+                kernel = weights[:, :, ic, oc].astype(np.int32)
+                input_slice = inputs[b, :, :, ic].astype(np.int32)
+                
+                # Full precision convolution (no padding, stride=1)
+                for oy in range(out_height):
+                    for ox in range(out_width):
+                        window = input_slice[oy:oy+kernel_h, ox:ox+kernel_w]
+                        # Elementwise multiply and sum (Q1.7 * Q1.7 = Q2.14)
+                        acc[oy, ox] += np.sum(window * kernel)
+            
+            # Add bias
+            bias_scaled = int(biases[oc]) << frac_bits
+            acc += bias_scaled
+            
+            # Shift back to Q1.7
+            result = acc >> frac_bits
+            
+            # Saturate to 8-bit signed range
+            result = np.clip(result, -128, 127)
+            
+            # Store
+            outputs[b, :, :, oc] = result.astype(np.int8)
+    
+    return outputs
+
+def quantized_relu(inputs):
+    """Simulate ReLU on Q1.7 inputs."""
+    return np.maximum(inputs, 0)
+
+def quantized_maxpool2x2(inputs):
+    """Simulate 2x2 max pooling with stride 2."""
+    batch, height, width, channels = inputs.shape
+    out_height = height // 2
+    out_width = width // 2
+    
+    outputs = np.zeros((batch, out_height, out_width, channels), dtype=inputs.dtype)
+    
+    for b in range(batch):
+        for c in range(channels):
+            for oy in range(out_height):
+                for ox in range(out_width):
+                    window = inputs[b, oy*2:oy*2+2, ox*2:ox*2+2, c]
+                    outputs[b, oy, ox, c] = np.max(window)
+    
+    return outputs
+
+def run_quantized_inference(image_q17, model):
+    """
+    Run inference using quantized arithmetic to match hardware behavior.
+    
+    Args:
+        image_q17: Input image in Q1.7
+        model: Trained Keras model (to extract weights)
+    
+    Returns:
+        Dictionary of layer outputs in Q1.7
+    """
+    from train_lenet5 import quantize_weights_fpga
+    
+    # Get quantized weights from model
+    conv1_weights = model.layers[0].get_weights()
+    conv1_w, conv1_b = quantize_weights_fpga(conv1_weights[0])[0], np.round(conv1_weights[1] * FIXED_SCALE).astype(np.int8)
+    
+    conv2_weights = model.layers[2].get_weights()
+    conv2_w, conv2_b = quantize_weights_fpga(conv2_weights[0])[0], np.round(conv2_weights[1] * FIXED_SCALE).astype(np.int8)
+    
+    # Apply FC_SCALE_FACTOR to FC layers to prevent output saturation
+    fc1_weights = model.layers[5].get_weights()
+    fc1_w = quantize_weights_fpga(fc1_weights[0] / FC_SCALE_FACTOR)[0]
+    fc1_b = np.round(fc1_weights[1] / FC_SCALE_FACTOR * FIXED_SCALE).astype(np.int8)
+    
+    fc2_weights = model.layers[6].get_weights()
+    fc2_w = quantize_weights_fpga(fc2_weights[0] / FC_SCALE_FACTOR)[0]
+    fc2_b = np.round(fc2_weights[1] / FC_SCALE_FACTOR * FIXED_SCALE).astype(np.int8)
+    
+    fc3_weights = model.layers[7].get_weights()
+    fc3_w = quantize_weights_fpga(fc3_weights[0] / FC_SCALE_FACTOR)[0]
+    fc3_b = np.round(fc3_weights[1] / FC_SCALE_FACTOR * FIXED_SCALE).astype(np.int8)
+    
+    outputs = {}
+    
+    # Input is already in Q1.7
+    x = image_q17.reshape(1, 28, 28, 1)
+    
+    # Conv1: 5x5 conv with 6 filters
+    x = quantized_conv2d(x, conv1_w, conv1_b)
+    x = quantized_relu(x)
+    outputs['conv1'] = x.copy()
+    print(f"  Quantized Conv1 output: shape={x.shape}, range=[{x.min()}, {x.max()}]")
+    
+    # Pool1: 2x2 max pooling
+    x = quantized_maxpool2x2(x)
+    outputs['pool1'] = x.copy()
+    print(f"  Quantized Pool1 output: shape={x.shape}, range=[{x.min()}, {x.max()}]")
+    
+    # Conv2: 5x5 conv with 16 filters
+    x = quantized_conv2d(x, conv2_w, conv2_b)
+    x = quantized_relu(x)
+    outputs['conv2'] = x.copy()
+    print(f"  Quantized Conv2 output: shape={x.shape}, range=[{x.min()}, {x.max()}]")
+    
+    # Pool2: 2x2 max pooling
+    x = quantized_maxpool2x2(x)
+    outputs['pool2'] = x.copy()
+    print(f"  Quantized Pool2 output: shape={x.shape}, range=[{x.min()}, {x.max()}]")
+    
+    # Flatten
+    x_flat = x.flatten().reshape(1, -1)
+    outputs['flatten'] = x_flat.copy()
+    print(f"  Quantized Flatten output: shape={x_flat.shape}, range=[{x_flat.min()}, {x_flat.max()}]")
+    
+    # FC layers use matrix multiplication with Q1.7 arithmetic
+    # FC1
+    acc = np.zeros((1, 120), dtype=np.int32)
+    for n in range(120):
+        for i in range(256):
+            acc[0, n] += int(x_flat[0, i]) * int(fc1_w[i, n])
+        acc[0, n] += int(fc1_b[n]) << FRAC_BITS
+    x_fc1 = np.clip(acc >> FRAC_BITS, -128, 127).astype(np.int8)
+    x_fc1 = np.maximum(x_fc1, 0)  # ReLU
+    outputs['fc1'] = x_fc1.copy()
+    print(f"  Quantized FC1 output: shape={x_fc1.shape}, range=[{x_fc1.min()}, {x_fc1.max()}]")
+    
+    # FC2
+    acc = np.zeros((1, 84), dtype=np.int32)
+    for n in range(84):
+        for i in range(120):
+            acc[0, n] += int(x_fc1[0, i]) * int(fc2_w[i, n])
+        acc[0, n] += int(fc2_b[n]) << FRAC_BITS
+    x_fc2 = np.clip(acc >> FRAC_BITS, -128, 127).astype(np.int8)
+    x_fc2 = np.maximum(x_fc2, 0)  # ReLU
+    outputs['fc2'] = x_fc2.copy()
+    print(f"  Quantized FC2 output: shape={x_fc2.shape}, range=[{x_fc2.min()}, {x_fc2.max()}]")
+    
+    # FC3 (output layer, no ReLU)
+    acc = np.zeros((1, 10), dtype=np.int32)
+    for n in range(10):
+        for i in range(84):
+            acc[0, n] += int(x_fc2[0, i]) * int(fc3_w[i, n])
+        acc[0, n] += int(fc3_b[n]) << FRAC_BITS
+    x_fc3 = np.clip(acc >> FRAC_BITS, -128, 127).astype(np.int8)
+    outputs['fc3'] = x_fc3.copy()
+    print(f"  Quantized FC3 output: shape={x_fc3.shape}, range=[{x_fc3.min()}, {x_fc3.max()}]")
+    
+    return outputs
+
 
 def create_lenet5_model_with_outputs():
     """Create the LeNet-5 model with separate outputs for each layer."""
@@ -87,116 +293,76 @@ def create_lenet5_model_with_outputs():
     
     return model
 
-def save_intermediate_outputs(model, image):
-    """Extract and save intermediate outputs from each layer."""
-    # Reshape to model input shape
-    input_image = image.reshape(1, 28, 28, 1)
+def save_quantized_golden_vectors(outputs):
+    """
+    Save quantized inference outputs as golden vectors for RTL verification.
     
-    # Create the multi-output model
-    multi_output_model = create_lenet5_model_with_outputs()
+    Args:
+        outputs: Dictionary of layer outputs from run_quantized_inference()
+    """
+    print("\nSaving quantized golden vectors:")
     
-    # Copy weights from the trained model to our multi-output model
-    # We copy layer by layer to ensure the correct weight mapping
-    for i in range(len(model.layers)):
-        if hasattr(model.layers[i], 'get_weights') and hasattr(multi_output_model.layers[i+1], 'set_weights'):
-            weights = model.layers[i].get_weights()
-            if weights:  # Check if the layer has weights
-                multi_output_model.layers[i+1].set_weights(weights)
-    
-    # Get outputs from all layers
-    layer_outputs = multi_output_model.predict(input_image)
-    
-    # Names for each layer output
-    layer_names = ['conv1', 'pool1', 'conv2', 'pool2', 'flatten1', 'fc1', 'fc2', 'fc3']
-    
-    # Create dictionary to store outputs
-    outputs = {}
-    
-    # Process each output
-    print("Extracting layer outputs:")
-    for i, (name, output) in enumerate(zip(layer_names, layer_outputs)):
-        outputs[name] = output
-        print(f"  - {name}: {output.shape}")
-        
-        # Save quantized outputs (scale to int8 range: -128 to 127)
-        quantized_output, scale = quantize_weights(output, bits=8)
-        
-        if name.startswith('conv'):
-            save_conv_output(name, quantized_output)
-        elif name.startswith('pool'):
-            save_pool_output(name, quantized_output)
-        elif name.startswith('flatten'):
-            save_flatten_output(quantized_output)
-        elif name.startswith('fc'):
-            save_fc_output(name, quantized_output)
-    
-    return outputs, layer_outputs[-1]  # Return outputs dict and final prediction
-
-def save_conv_output(layer_name, output):
-    """Save convolutional layer output to file."""
-    # Get dimensions
-    batch, height, width, channels = output.shape
-    
-    filename = f"golden_vectors/{layer_name}_output.txt"
-    with open(filename, 'w') as f:
-        f.write(f"# {layer_name} output: {height}x{width}x{channels}\n")
-        f.write(f"# Format: channel, y, x, value\n")
-        
-        for c in range(channels):
-            for y in range(height):
-                for x in range(width):
-                    value = int(output[0, y, x, c])
-                    # Convert to unsigned byte representation (0-255) if negative
+    for layer_name, output in outputs.items():
+        if layer_name.startswith('conv') or layer_name.startswith('pool'):
+            # Reshape if needed
+            if len(output.shape) == 4:
+                batch, height, width, channels = output.shape
+            else:
+                continue
+            
+            filename = f"golden_vectors/{layer_name}_output.txt"
+            with open(filename, 'w') as f:
+                f.write(f"# {layer_name} output: {height}x{width}x{channels}\n")
+                f.write(f"# Format: channel, y, x, value\n")
+                
+                for c in range(channels):
+                    for y in range(height):
+                        for x in range(width):
+                            value = int(output[0, y, x, c])
+                            if value < 0:
+                                value = 256 + value
+                            f.write(f"{c}, {y}, {x}, {value}\n")
+            
+            # Also save as .mem file
+            mem_filename = f"sim/cnn/{layer_name}_expected.mem"
+            with open(mem_filename, 'w') as f:
+                for c in range(channels):
+                    for y in range(height):
+                        for x in range(width):
+                            value = int(output[0, y, x, c])
+                            if value < 0:
+                                value = 256 + value
+                            f.write(f"{value:02X}\n")
+            
+            print(f"  Saved {layer_name} golden vector ({channels} channels, {height}x{width})")
+            
+        elif layer_name.startswith('flatten'):
+            size = output.shape[1]
+            filename = f"golden_vectors/flatten_output.txt"
+            with open(filename, 'w') as f:
+                f.write(f"# flatten output: {size} neurons\n")
+                f.write(f"# Format: index, value\n")
+                
+                for i in range(size):
+                    value = int(output[0, i])
                     if value < 0:
-                        value = 256 + value  # 2's complement
-                    f.write(f"{c}, {y}, {x}, {value}\n")
-
-def save_pool_output(layer_name, output):
-    """Save pooling layer output to file."""
-    # Get dimensions
-    batch, height, width, channels = output.shape
-    
-    filename = f"golden_vectors/{layer_name}_output.txt"
-    with open(filename, 'w') as f:
-        f.write(f"# {layer_name} output: {height}x{width}x{channels}\n")
-        f.write(f"# Format: channel, y, x, value\n")
-        
-        for c in range(channels):
-            for y in range(height):
-                for x in range(width):
-                    value = int(output[0, y, x, c])
-                    # Convert to unsigned byte representation if negative
+                        value = 256 + value
+                    f.write(f"{i}, {value}\n")
+            print(f"  Saved flatten golden vector ({size} elements)")
+            
+        elif layer_name.startswith('fc'):
+            size = output.shape[1]
+            filename = f"golden_vectors/{layer_name}_output.txt"
+            with open(filename, 'w') as f:
+                f.write(f"# {layer_name} output: {size} neurons\n")
+                f.write(f"# Format: neuron_index, value\n")
+                
+                for i in range(size):
+                    value = int(output[0, i])
                     if value < 0:
-                        value = 256 + value  # 2's complement
-                    f.write(f"{c}, {y}, {x}, {value}\n")
-
-def save_flatten_output(output):
-    """Save flattened output to file."""
-    filename = f"golden_vectors/flatten1_output.txt"
-    with open(filename, 'w') as f:
-        f.write(f"# flatten1 output: {output.shape[1]} neurons\n")
-        f.write(f"# Format: index, value\n")
-        
-        for i in range(output.shape[1]):
-            value = int(output[0, i])
-            # Convert to unsigned byte representation if negative
-            if value < 0:
-                value = 256 + value  # 2's complement
-            f.write(f"{i}, {value}\n")
-
-def save_fc_output(layer_name, output):
-    """Save fully connected layer output to file."""
-    filename = f"golden_vectors/{layer_name}_output.txt"
-    with open(filename, 'w') as f:
-        f.write(f"# {layer_name} output: {output.shape[1]} neurons\n")
-        f.write(f"# Format: neuron_index, value\n")
-        
-        for i in range(output.shape[1]):
-            value = int(output[0, i])
-            # Convert to unsigned byte representation if negative
-            if value < 0:
-                value = 256 + value  # 2's complement
-            f.write(f"{i}, {value}\n")
+                        value = 256 + value
+                    f.write(f"{i}, {value}\n")
+            print(f"  Saved {layer_name} golden vector ({size} neurons)")
 
 def visualize_test_image(image, expected_label, output_scores=None, predicted_label=None):
     """Visualize the test image and prediction results."""
@@ -222,13 +388,25 @@ def visualize_test_image(image, expected_label, output_scores=None, predicted_la
 
 def main():
     """Main function to run inference and dump intermediate outputs."""
-    print("Loading test image...")
+    print("=" * 60)
+    print("LeNet-5 FPGA Golden Vector Generation")
+    print("=" * 60)
+    print(f"Quantization: Q{8-FRAC_BITS-1}.{FRAC_BITS} format")
+    print(f"FRAC_BITS: {FRAC_BITS}")
+    print(f"SCALE: {FIXED_SCALE}")
+    print(f"Mode: {'Uniform scaling' if USE_UNIFORM_SCALE else 'Per-layer power-of-two'}")
+    print("=" * 60)
+    
+    print("\nLoading test image...")
     test_image, expected_label = load_test_image("python/test_image.txt")
     
     print(f"Test image loaded with expected label: {expected_label}")
-    export_raw_image(test_image)
     
-    print("Loading LeNet-5 model...")
+    # Export quantized image for RTL simulation (Q1.7)
+    print("\nQuantizing input image to Q1.7 format:")
+    image_q17 = export_quantized_image(test_image)
+    
+    print("\nLoading LeNet-5 model...")
     model = create_lenet5_model()
     
     # Load weights from file if exists, otherwise train a new model
@@ -255,13 +433,34 @@ def main():
         # Save weights
         model.save_weights(model_weights_path)
     
-    print("Running inference and saving intermediate outputs...")
-    outputs, prediction = save_intermediate_outputs(model, test_image)
+    # Run quantized inference (matches hardware behavior)
+    print("\n" + "=" * 60)
+    print("Running QUANTIZED inference (matches hardware)")
+    print("=" * 60)
+    quantized_outputs = run_quantized_inference(image_q17, model)
+    
+    # Save quantized golden vectors
+    save_quantized_golden_vectors(quantized_outputs)
+    
+    # Get quantized prediction
+    fc3_output = quantized_outputs['fc3']
+    predicted_label_q = np.argmax(fc3_output)
+    print(f"\nQuantized prediction: {predicted_label_q}")
+    print(f"FC3 outputs (Q1.7):")
+    for i in range(10):
+        print(f"  Digit {i}: {fc3_output[0, i]}")
+    
+    # Also run float32 inference for comparison (but dont save)
+    print("\n" + "=" * 60)
+    print("Running FLOAT32 inference (reference)")
+    print("=" * 60)
+    input_image = test_image.reshape(1, 28, 28, 1)
+    prediction = model.predict(input_image, verbose=0)
     
     # Get final prediction
     predicted_label = np.argmax(prediction)
     
-    print(f"Prediction results:")
+    print(f"\nFloat32 prediction results:")
     print(f"Expected: {expected_label}, Predicted: {predicted_label}")
     print(f"Confidence scores:")
     for i, score in enumerate(prediction[0]):
@@ -270,7 +469,15 @@ def main():
     # Visualize test image and prediction
     visualize_test_image(test_image, expected_label, prediction, predicted_label)
     
-    print("Done! All intermediate outputs have been saved to the 'golden_vectors' directory.")
+    print("\n" + "=" * 60)
+    print("SUMMARY")
+    print("=" * 60)
+    print(f"Expected label: {expected_label}")
+    print(f"Float32 prediction: {predicted_label}")
+    print(f"Quantized prediction: {predicted_label_q}")
+    print(f"\nGolden vectors saved to 'golden_vectors/' directory")
+    print(f"Expected memory files saved to 'sim/cnn/' directory")
+    print("Done!")
 
 if __name__ == '__main__':
     main() 

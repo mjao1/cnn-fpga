@@ -1,0 +1,34 @@
+# FPGA Quantization Configuration
+# Generated with FRAC_BITS=7, SCALE=128.0
+# Mode: Uniform
+
+conv1:
+  frac_bits: 7
+  scale: 128.0
+  weight_range: (-0.7515174, 0.36696213)
+  bias_range: (-0.11040766, 0.106997825)
+
+conv2:
+  frac_bits: 7
+  scale: 128.0
+  weight_range: (-0.40408233, 0.38940346)
+  bias_range: (-0.07455539, 0.064842835)
+
+fc1:
+  frac_bits: 7
+  scale: 128.0
+  weight_range: (-0.52126163, 0.45321324)
+  bias_range: (-0.061195545, 0.08269089)
+
+fc2:
+  frac_bits: 7
+  scale: 128.0
+  weight_range: (-0.44250658, 0.44372714)
+  bias_range: (-0.06974997, 0.10613426)
+
+fc3:
+  frac_bits: 7
+  scale: 128.0
+  weight_range: (-0.57513064, 0.40205255)
+  bias_range: (-0.041997872, 0.06621898)
+

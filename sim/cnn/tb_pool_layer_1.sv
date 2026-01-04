@@ -148,6 +148,7 @@ module tb_pool_layer_1;
                 valid_in = 1;
                 
                 @(posedge clk);
+                #1;
             end
         end
         
@@ -155,13 +156,7 @@ module tb_pool_layer_1;
         
         repeat (IN_HEIGHT + 20) @(posedge clk);
         
-        $display("\nTest completed with %0d errors.", errors);
-        
-        if (errors == 0) begin
-            $display("SUCCESS: All outputs match expected values!");
-        end else begin
-            $display("FAILURE: Some outputs do not match expected values.");
-        end
+        $display("\nTest completed with %0d errors", errors);
         
         $finish;
     end
