@@ -1,8 +1,7 @@
 `timescale 1ns / 1ps
 
-// Testbench for cnn_top with layer-by-layer golden vector verification
+// Testbench for cnn_top with optional layer-by-layer golden vector verification
 // Uses Q1.7 quantized input to match hardware format
-// Compares each layer output against golden vectors
 
 module tb_cnn_top;
 
@@ -11,7 +10,8 @@ module tb_cnn_top;
     parameter IMG_WIDTH = 28;
     parameter IMG_HEIGHT = 28;
     parameter NUM_PIXELS = IMG_WIDTH * IMG_HEIGHT;
-    
+    parameter ENABLE_GOLDEN_COMPARE = 0;
+
     // Golden vector sizes
     parameter CONV1_SIZE = 6 * 24 * 24; // 3456
     parameter POOL1_SIZE = 6 * 12 * 12; // 864
@@ -59,7 +59,6 @@ module tb_cnn_top;
     integer fc3_match, fc3_mismatch;
     
     integer i, ch;
-    integer log_file;
     
     reg [127:0] state_name;
     always_comb begin
@@ -105,7 +104,6 @@ module tb_cnn_top;
         pixel_data = 0;
         pixel_valid = 0;
         pixel_addr = 0;
-        expected_digit = 4;
         
         conv1_match = 0; conv1_mismatch = 0;
         pool1_match = 0; pool1_mismatch = 0;
@@ -114,27 +112,26 @@ module tb_cnn_top;
         flatten_match = 0; flatten_mismatch = 0;fc1_match = 0; fc1_mismatch = 0;
         fc2_match = 0; fc2_mismatch = 0;
         fc3_match = 0; fc3_mismatch = 0;
-        log_file = $fopen("sim/cnn/cnn_results.log", "w");
-        if (log_file == 0) begin
-            $display("Error: Failed to open log file");
-            $finish;
-        end
         
-        $fwrite(log_file, "CNN Top Testbench - Layer-by-Layer Verification\n");
-        $fwrite(log_file, "================================================\n\n");
-        
+        expected_digit = 4; // Change based on test image
+
         // Load Q1.7 quantized input image (Change to test a different input digit)
-        $readmemh("sim/cnn/test_image_4.mem", test_image);
+        $readmemh("sim/cnn/test_images/test_image_4.mem", test_image);
         
         // Load golden vectors for each layer
-        $readmemh("sim/cnn/conv1_expected.mem", conv1_expected);
-        $readmemh("sim/cnn/pool1_expected.mem", pool1_expected);
-        $readmemh("sim/cnn/conv2_expected.mem", conv2_expected);
-        $readmemh("sim/cnn/pool2_expected.mem", pool2_expected);
-        $readmemh("sim/cnn/flatten_expected.mem", flatten_expected);
-        $readmemh("sim/cnn/fc1_expected.mem", fc1_expected);
-        $readmemh("sim/cnn/fc2_expected.mem", fc2_expected);
-        $readmemh("sim/cnn/fc3_expected.mem", fc3_expected);
+        if (ENABLE_GOLDEN_COMPARE) begin
+            $readmemh("sim/cnn/conv1_expected.mem", conv1_expected);
+            $readmemh("sim/cnn/pool1_expected.mem", pool1_expected);
+            $readmemh("sim/cnn/conv2_expected.mem", conv2_expected);
+            $readmemh("sim/cnn/pool2_expected.mem", pool2_expected);
+            $readmemh("sim/cnn/flatten_expected.mem", flatten_expected);
+            $readmemh("sim/cnn/fc1_expected.mem", fc1_expected);
+            $readmemh("sim/cnn/fc2_expected.mem", fc2_expected);
+            $readmemh("sim/cnn/fc3_expected.mem", fc3_expected);
+            $display("Golden vector comparison: ENABLED");
+        end else begin
+            $display("Golden vector comparison: DISABLED");
+        end
         
         $display("=== CNN Top Testbench ===");
         $display("Expected digit: %d", expected_digit);
@@ -169,7 +166,6 @@ module tb_cnn_top;
                 #(CLK_PERIOD*1000000);
                 $display("ERROR: Timeout reached");
                 print_summary();
-                $fclose(log_file);
                 $finish;
             end
             
@@ -196,7 +192,6 @@ module tb_cnn_top;
         end
         
         print_summary();
-        $fclose(log_file);
         
         #(CLK_PERIOD*100);
         $finish;
@@ -205,34 +200,25 @@ module tb_cnn_top;
     // Print layer verification summary
     task print_summary;
         begin
-            $display("\n=== Layer Verification Summary ===");
-            $display("CONV1: %0d matches, %0d mismatches (%s)", 
-                conv1_match, conv1_mismatch, conv1_mismatch == 0 ? "PASS" : "FAIL");
-            $display("POOL1: %0d matches, %0d mismatches (%s)", 
-                pool1_match, pool1_mismatch, pool1_mismatch == 0 ? "PASS" : "FAIL");
-            $display("CONV2: %0d matches, %0d mismatches (%s)", 
-                conv2_match, conv2_mismatch, conv2_mismatch == 0 ? "PASS" : "FAIL");
-            $display("POOL2: %0d matches, %0d mismatches (%s)", 
-                pool2_match, pool2_mismatch, pool2_mismatch == 0 ? "PASS" : "FAIL");
-            $display("FLATTEN: %0d matches, %0d mismatches (%s)", 
-                flatten_match, flatten_mismatch, flatten_mismatch == 0 ? "PASS" : "FAIL");
-            $display("FC1: %0d matches, %0d mismatches (%s)", 
-                fc1_match, fc1_mismatch, fc1_mismatch == 0 ? "PASS" : "FAIL");
-            $display("FC2: %0d matches, %0d mismatches (%s)", 
-                fc2_match, fc2_mismatch, fc2_mismatch == 0 ? "PASS" : "FAIL");
-            $display("FC3: %0d matches, %0d mismatches (%s)", 
-                fc3_match, fc3_mismatch, fc3_mismatch == 0 ? "PASS" : "FAIL");
-            
-            // Write to log file
-            $fwrite(log_file, "\n=== Layer Verification Summary ===\n");
-            $fwrite(log_file, "CONV1: %0d matches, %0d mismatches\n", conv1_match, conv1_mismatch);
-            $fwrite(log_file, "POOL1: %0d matches, %0d mismatches\n", pool1_match, pool1_mismatch);
-            $fwrite(log_file, "CONV2: %0d matches, %0d mismatches\n", conv2_match, conv2_mismatch);
-            $fwrite(log_file, "POOL2: %0d matches, %0d mismatches\n", pool2_match, pool2_mismatch);
-            $fwrite(log_file, "FLATTEN: %0d matches, %0d mismatches\n", flatten_match, flatten_mismatch);
-            $fwrite(log_file, "FC1: %0d matches, %0d mismatches\n", fc1_match, fc1_mismatch);
-            $fwrite(log_file, "FC2: %0d matches, %0d mismatches\n", fc2_match, fc2_mismatch);
-            $fwrite(log_file, "FC3: %0d matches, %0d mismatches\n", fc3_match, fc3_mismatch);
+            if (ENABLE_GOLDEN_COMPARE) begin
+                $display("\n=== Layer Verification Summary ===");
+                $display("CONV1: %0d matches, %0d mismatches (%s)", 
+                    conv1_match, conv1_mismatch, conv1_mismatch == 0 ? "PASS" : "FAIL");
+                $display("POOL1: %0d matches, %0d mismatches (%s)", 
+                    pool1_match, pool1_mismatch, pool1_mismatch == 0 ? "PASS" : "FAIL");
+                $display("CONV2: %0d matches, %0d mismatches (%s)", 
+                    conv2_match, conv2_mismatch, conv2_mismatch == 0 ? "PASS" : "FAIL");
+                $display("POOL2: %0d matches, %0d mismatches (%s)", 
+                    pool2_match, pool2_mismatch, pool2_mismatch == 0 ? "PASS" : "FAIL");
+                $display("FLATTEN: %0d matches, %0d mismatches (%s)", 
+                    flatten_match, flatten_mismatch, flatten_mismatch == 0 ? "PASS" : "FAIL");
+                $display("FC1: %0d matches, %0d mismatches (%s)", 
+                    fc1_match, fc1_mismatch, fc1_mismatch == 0 ? "PASS" : "FAIL");
+                $display("FC2: %0d matches, %0d mismatches (%s)", 
+                    fc2_match, fc2_mismatch, fc2_mismatch == 0 ? "PASS" : "FAIL");
+                $display("FC3: %0d matches, %0d mismatches (%s)", 
+                    fc3_match, fc3_mismatch, fc3_mismatch == 0 ? "PASS" : "FAIL");
+            end
         end
     endtask
     
@@ -262,7 +248,7 @@ module tb_cnn_top;
     assign conv1_outputs[5] = dut.conv1_data_out_5;
     
     always @(posedge clk) begin
-        if (!rst && dut.conv1_valid_out) begin
+        if (!rst && dut.conv1_valid_out && ENABLE_GOLDEN_COMPARE) begin
             for (ch = 0; ch < 6; ch = ch + 1) begin
                 // Index: channel * (24*24) + y * 24 + x
                 conv1_idx = ch * 24 * 24 + dut.conv1_y_out * 24 + dut.conv1_x_out;
@@ -279,15 +265,15 @@ module tb_cnn_top;
                     end
                 end
             end
-                end
-            end
+        end
+    end
             
     // POOL1 output verification
     integer pool1_idx;
     reg [DATA_WIDTH-1:0] pool1_exp, pool1_act;
     
     always @(posedge clk) begin
-        if (!rst && dut.pool1_valid_out) begin
+        if (!rst && dut.pool1_valid_out && ENABLE_GOLDEN_COMPARE) begin
             for (ch = 0; ch < 6; ch = ch + 1) begin
                 // Index: channel * (12*12) + y * 12 + x
                 pool1_idx = ch * 12 * 12 + dut.pool1_y_out * 12 + dut.pool1_x_out;
@@ -312,8 +298,8 @@ module tb_cnn_top;
     reg [DATA_WIDTH-1:0] conv2_exp, conv2_act;
     
     always @(posedge clk) begin
-        if (!rst && dut.conv2_valid_out) begin
-                for (ch = 0; ch < 16; ch = ch + 1) begin
+        if (!rst && dut.conv2_valid_out && ENABLE_GOLDEN_COMPARE) begin
+            for (ch = 0; ch < 16; ch = ch + 1) begin
                 // Index: channel * (8*8) + y * 8 + x
                 conv2_idx = ch * 8 * 8 + dut.conv2_y_out * 8 + dut.conv2_x_out;
                 conv2_exp = conv2_expected[conv2_idx];
@@ -337,8 +323,8 @@ module tb_cnn_top;
     reg [DATA_WIDTH-1:0] pool2_exp, pool2_act;
     
     always @(posedge clk) begin
-        if (!rst && dut.pool2_valid_out) begin
-                for (ch = 0; ch < 16; ch = ch + 1) begin
+        if (!rst && dut.pool2_valid_out && ENABLE_GOLDEN_COMPARE) begin
+            for (ch = 0; ch < 16; ch = ch + 1) begin
                 // Index: channel * (4*4) + y * 4 + x
                 pool2_idx = ch * 4 * 4 + dut.pool2_y_out * 4 + dut.pool2_x_out;
                 pool2_exp = pool2_expected[pool2_idx];
@@ -367,16 +353,18 @@ module tb_cnn_top;
             flatten_output_count <= 0;
             flatten_first_pass_done <= 0;
         end else if (!flatten_first_pass_done && dut.flatten_valid_out) begin
-            flatten_exp = flatten_expected[dut.flatten_addr_out];
-            flatten_act = dut.flatten_data_out;
-            
-            if (flatten_act == flatten_exp) begin
-                flatten_match = flatten_match + 1;
-            end else begin
-                flatten_mismatch = flatten_mismatch + 1;
-                if (flatten_mismatch <= 10) begin
-                    $display("FLATTEN MISMATCH @idx=%0d: exp=%0d, got=%0d",
-                        dut.flatten_addr_out, $signed(flatten_exp), $signed(flatten_act));
+            if (ENABLE_GOLDEN_COMPARE) begin
+                flatten_exp = flatten_expected[dut.flatten_addr_out];
+                flatten_act = dut.flatten_data_out;
+                
+                if (flatten_act == flatten_exp) begin
+                    flatten_match = flatten_match + 1;
+                end else begin
+                    flatten_mismatch = flatten_mismatch + 1;
+                    if (flatten_mismatch <= 10) begin
+                        $display("FLATTEN MISMATCH @idx=%0d: exp=%0d, got=%0d",
+                            dut.flatten_addr_out, $signed(flatten_exp), $signed(flatten_act));
+                    end
                 end
             end
             
@@ -391,7 +379,7 @@ module tb_cnn_top;
     reg [DATA_WIDTH-1:0] fc1_exp, fc1_act;
     
     always @(posedge clk) begin
-        if (!rst && dut.fc_layers_inst.fc1_valid_out) begin
+        if (!rst && dut.fc_layers_inst.fc1_valid_out && ENABLE_GOLDEN_COMPARE) begin
             fc1_exp = fc1_expected[dut.fc_layers_inst.fc1_neuron_idx];
             fc1_act = dut.fc_layers_inst.fc1_data_out;
             
@@ -411,7 +399,7 @@ module tb_cnn_top;
     reg [DATA_WIDTH-1:0] fc2_exp, fc2_act;
     
     always @(posedge clk) begin
-        if (!rst && dut.fc_layers_inst.fc2_valid_out) begin
+        if (!rst && dut.fc_layers_inst.fc2_valid_out && ENABLE_GOLDEN_COMPARE) begin
             fc2_exp = fc2_expected[dut.fc_layers_inst.fc2_neuron_idx];
             fc2_act = dut.fc_layers_inst.fc2_data_out;
             
@@ -425,13 +413,13 @@ module tb_cnn_top;
                 end
             end
         end
-            end
+    end
             
     // FC3 output verification
     reg [DATA_WIDTH-1:0] fc3_exp, fc3_act;
     
     always @(posedge clk) begin
-        if (!rst && dut.fc_layers_inst.fc3_valid_out) begin
+        if (!rst && dut.fc_layers_inst.fc3_valid_out && ENABLE_GOLDEN_COMPARE) begin
             fc3_exp = fc3_expected[dut.fc_layers_inst.fc3_neuron_idx];
             fc3_act = dut.fc_layers_inst.fc3_data_out;
             

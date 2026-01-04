@@ -61,11 +61,22 @@ cnn-fpga/
 
 
 ## Simulation
-```bash
-# Full CNN pipeline test
-iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_cnn_top.vvp
 
-# Individual module tests
+### Full CNN pipeline test
+```bash
+iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_cnn_top.vvp
+```
+- Runs the complete LeNet-5 pipeline on an MNIST test image and outputs the predicted digit class
+
+### Note: 
+- To test a different image, edit line 127 in `tb_cnn_top.sv` to change the input image path:
+  ```systemverilog
+  $readmemh("sim/cnn/test_images/test_image_X.mem", test_image);  // Test digit X (0-9)
+  ```
+- Golden vector comparison is disabled by default (`ENABLE_GOLDEN_COMPARE = 0`). Enable it only when testing digit 4 with the corresponding golden vectors.
+
+### Individual module tests
+```bash
 # conv_5x5
 iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v && vvp sim/cnn/tb_conv_5x5.vvp
 
@@ -99,6 +110,24 @@ iverilog -g2012 -o sim/cnn/tb_fc_layer_3.vvp sim/cnn/tb_fc_layer_3.v rtl/cnn/*.v
 # fc_layers
 iverilog -g2012 -o sim/cnn/tb_fc_layers.vvp sim/cnn/tb_fc_layers.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_fc_layers.vvp
 ```
+
+
+## Generating Test Images
+
+Test images can be generated from the MNIST dataset using the `generate_test_image.py` script:
+
+```bash
+# Generate test image for a specific digit (0-9)
+python python/generate_test_image.py --digit 7
+
+# Generate test image for a random digit
+python python/generate_test_image.py --random
+
+# Generate a specific occurrence of a digit
+python python/generate_test_image.py --digit 4 --index 5
+```
+
+Test images are saved to `sim/cnn/test_images/` in both `.txt` (raw pixel values) and `.mem` (Q1.7 quantized hex) formats.
 
 
 ## Next Steps
