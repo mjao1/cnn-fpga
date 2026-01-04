@@ -30,6 +30,7 @@ The implementation follows the LeNet-5 architecture:
 cnn-fpga/
 ├── rtl/cnn/          # CNN RTL modules (Verilog/SystemVerilog)
 ├── sim/cnn/          # Component testbenches and golden vectors
+│   └── test_images/  # MNIST test images (.txt and .mem formats)
 ├── weights_mem/      # Quantized CNN weights (.mem format)
 ├── golden_vectors/   # Expected layer outputs for verification
 └── python/           # Model training, quantization, and test generation
@@ -73,7 +74,7 @@ iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/
   ```systemverilog
   $readmemh("sim/cnn/test_images/test_image_X.mem", test_image);  // Test digit X (0-9)
   ```
-- Golden vector comparison is disabled by default (`ENABLE_GOLDEN_COMPARE = 0`). Enable it only when testing digit 4 with the corresponding golden vectors.
+- Golden vector comparison is disabled by default (`ENABLE_GOLDEN_COMPARE = 0`), only enable when testing digit 4 with corresponding golden vectors
 
 ### Individual module tests
 ```bash
