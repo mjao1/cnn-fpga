@@ -1,7 +1,5 @@
 // CNN top module
 // Takes a 28x28 MNIST image and processes it through all CNN layers
-// First line of test_image.txt is the expected label (for simulation)
-// Remaining 784 lines are pixel values (0-255) for 28x28 image
 
 module cnn_top #(
     parameter IMG_WIDTH = 28,
