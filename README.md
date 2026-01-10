@@ -112,10 +112,16 @@ iverilog -g2012 -o sim/cnn/tb_fc_layer_3.vvp sim/cnn/tb_fc_layer_3.v rtl/cnn/*.v
 iverilog -g2012 -o sim/cnn/tb_fc_layers.vvp sim/cnn/tb_fc_layers.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_fc_layers.vvp
 ```
 
+### Accuracy test
+```bash
+iverilog -g2012 -o sim/cnn/tb_cnn_top_bulk.vvp sim/cnn/tb_cnn_top_bulk.sv rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_cnn_top_bulk.vvp
+```
+- Tests the CNN on 1000 MNIST images (100 per digit) and measures accuracy
+- Accuracy is highly dependent on the quality of test images from the dataset
 
 ## Generating Test Images
 
-Test images can be generated from the MNIST dataset using the `generate_test_image.py` script:
+Test images can be generated from the MNIST dataset using the `generate_test_image.py` or `generate_bulk_test_images.py` script:
 
 ```bash
 # Generate test image for a specific digit (0-9)
@@ -126,10 +132,10 @@ python python/generate_test_image.py --random
 
 # Generate a specific occurrence of a digit
 python python/generate_test_image.py --digit 4 --index 5
+
+# Generate bulk test images
+python python/generate_bulk_test_images.py
 ```
 
-Test images are saved to `sim/cnn/test_images/` in both `.txt` (raw pixel values) and `.mem` (Q1.7 quantized hex) formats.
-
-
-## Next Steps
-- Create another testbench that tests the full hardware CNN pipeline through a high volume of unique MNIST digits (0-9) to study inference accuracy
+Single test images are saved to `sim/cnn/test_images/` in both `.txt` (raw pixel values) and `.mem` (Q1.7 quantized hex) formats.
+Accuracy test images are saved to `sim/cnn/test_images_bulk/` in `.mem` format.
