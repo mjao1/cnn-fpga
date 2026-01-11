@@ -120,14 +120,14 @@ module tb_cnn_top;
         
         // Load golden vectors for each layer
         if (ENABLE_GOLDEN_COMPARE) begin
-            $readmemh("sim/cnn/conv1_expected.mem", conv1_expected);
-            $readmemh("sim/cnn/pool1_expected.mem", pool1_expected);
-            $readmemh("sim/cnn/conv2_expected.mem", conv2_expected);
-            $readmemh("sim/cnn/pool2_expected.mem", pool2_expected);
-            $readmemh("sim/cnn/flatten_expected.mem", flatten_expected);
-            $readmemh("sim/cnn/fc1_expected.mem", fc1_expected);
-            $readmemh("sim/cnn/fc2_expected.mem", fc2_expected);
-            $readmemh("sim/cnn/fc3_expected.mem", fc3_expected);
+            $readmemh("sim/cnn/golden_vectors/conv1_expected.mem", conv1_expected);
+            $readmemh("sim/cnn/golden_vectors/pool1_expected.mem", pool1_expected);
+            $readmemh("sim/cnn/golden_vectors/conv2_expected.mem", conv2_expected);
+            $readmemh("sim/cnn/golden_vectors/pool2_expected.mem", pool2_expected);
+            $readmemh("sim/cnn/golden_vectors/flatten_expected.mem", flatten_expected);
+            $readmemh("sim/cnn/golden_vectors/fc1_expected.mem", fc1_expected);
+            $readmemh("sim/cnn/golden_vectors/fc2_expected.mem", fc2_expected);
+            $readmemh("sim/cnn/golden_vectors/fc3_expected.mem", fc3_expected);
             $display("Golden vector comparison: ENABLED");
         end else begin
             $display("Golden vector comparison: DISABLED");
@@ -135,7 +135,7 @@ module tb_cnn_top;
         
         $display("=== CNN Top Testbench ===");
         $display("Expected digit: %d", expected_digit);
-
+        
         #(CLK_PERIOD*10);
         rst = 0;
         #(CLK_PERIOD*2);
@@ -265,8 +265,8 @@ module tb_cnn_top;
                     end
                 end
             end
-        end
-    end
+                end
+            end
             
     // POOL1 output verification
     integer pool1_idx;
@@ -299,7 +299,7 @@ module tb_cnn_top;
     
     always @(posedge clk) begin
         if (!rst && dut.conv2_valid_out && ENABLE_GOLDEN_COMPARE) begin
-            for (ch = 0; ch < 16; ch = ch + 1) begin
+                for (ch = 0; ch < 16; ch = ch + 1) begin
                 // Index: channel * (8*8) + y * 8 + x
                 conv2_idx = ch * 8 * 8 + dut.conv2_y_out * 8 + dut.conv2_x_out;
                 conv2_exp = conv2_expected[conv2_idx];
@@ -315,8 +315,8 @@ module tb_cnn_top;
                     end
                 end
             end
-        end
-    end
+                end
+            end
             
     // POOL2 output verification
     integer pool2_idx;
@@ -324,7 +324,7 @@ module tb_cnn_top;
     
     always @(posedge clk) begin
         if (!rst && dut.pool2_valid_out && ENABLE_GOLDEN_COMPARE) begin
-            for (ch = 0; ch < 16; ch = ch + 1) begin
+                for (ch = 0; ch < 16; ch = ch + 1) begin
                 // Index: channel * (4*4) + y * 4 + x
                 pool2_idx = ch * 4 * 4 + dut.pool2_y_out * 4 + dut.pool2_x_out;
                 pool2_exp = pool2_expected[pool2_idx];
@@ -413,7 +413,7 @@ module tb_cnn_top;
                 end
             end
         end
-    end
+            end
             
     // FC3 output verification
     reg [DATA_WIDTH-1:0] fc3_exp, fc3_act;

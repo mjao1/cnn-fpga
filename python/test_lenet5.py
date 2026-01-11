@@ -13,7 +13,6 @@ import os
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import models
-import matplotlib.pyplot as plt
 from train_lenet5 import (
     create_lenet5_model, 
     quantize_weights, 
@@ -23,8 +22,6 @@ from train_lenet5 import (
     USE_UNIFORM_SCALE,
     FC_SCALE_FACTOR
 )
-
-os.makedirs('golden_vectors', exist_ok=True)
 
 def load_test_image(image_path=None):
     """Load a single test image, either from a specific file or from MNIST dataset."""
@@ -49,7 +46,7 @@ def load_test_image(image_path=None):
     
     return image, expected_label
 
-def export_quantized_image(image, filename='golden_vectors/input_image.txt'):
+def export_quantized_image(image):
     """
     Export image quantized to Q1.7 format for RTL simulation.
     
@@ -59,11 +56,6 @@ def export_quantized_image(image, filename='golden_vectors/input_image.txt'):
     """
     # Quantize normalized [0, 1] to Q1.7 [0, 127]
     quantized = np.clip(np.round(image * 127), 0, 127).astype(np.int8)
-    
-    with open(filename, 'w') as f:
-        for row in quantized:
-            for pixel in row:
-                f.write(f"{pixel}\n")
     
     # Export as .mem file for Verilog $readmemh
     mem_filename = 'sim/cnn/input_image.mem'
@@ -76,7 +68,7 @@ def export_quantized_image(image, filename='golden_vectors/input_image.txt'):
                 f.write(f"{val:02X}\n")
     
     print(f"  Q1.7 quantized image: range [{quantized.min()}, {quantized.max()}]")
-    print(f"  Saved to {filename} and {mem_filename}")
+    print(f"  Saved to {mem_filename}")
     
     return quantized
 
@@ -300,7 +292,8 @@ def save_quantized_golden_vectors(outputs):
     Args:
         outputs: Dictionary of layer outputs from run_quantized_inference()
     """
-    print("\nSaving quantized golden vectors:")
+    os.makedirs('sim/cnn/golden_vectors', exist_ok=True)
+    print("\nSaving golden vector .mem files:")
     
     for layer_name, output in outputs.items():
         if layer_name.startswith('conv') or layer_name.startswith('pool'):
@@ -310,21 +303,7 @@ def save_quantized_golden_vectors(outputs):
             else:
                 continue
             
-            filename = f"golden_vectors/{layer_name}_output.txt"
-            with open(filename, 'w') as f:
-                f.write(f"# {layer_name} output: {height}x{width}x{channels}\n")
-                f.write(f"# Format: channel, y, x, value\n")
-                
-                for c in range(channels):
-                    for y in range(height):
-                        for x in range(width):
-                            value = int(output[0, y, x, c])
-                            if value < 0:
-                                value = 256 + value
-                            f.write(f"{c}, {y}, {x}, {value}\n")
-            
-            # Also save as .mem file
-            mem_filename = f"sim/cnn/{layer_name}_expected.mem"
+            mem_filename = f"sim/cnn/golden_vectors/{layer_name}_expected.mem"
             with open(mem_filename, 'w') as f:
                 for c in range(channels):
                     for y in range(height):
@@ -334,57 +313,31 @@ def save_quantized_golden_vectors(outputs):
                                 value = 256 + value
                             f.write(f"{value:02X}\n")
             
-            print(f"  Saved {layer_name} golden vector ({channels} channels, {height}x{width})")
+            print(f"  Saved {layer_name}_expected.mem ({channels} channels, {height}x{width})")
             
         elif layer_name.startswith('flatten'):
             size = output.shape[1]
-            filename = f"golden_vectors/flatten_output.txt"
-            with open(filename, 'w') as f:
-                f.write(f"# flatten output: {size} neurons\n")
-                f.write(f"# Format: index, value\n")
-                
+            mem_filename = f"sim/cnn/golden_vectors/flatten_expected.mem"
+            with open(mem_filename, 'w') as f:
                 for i in range(size):
                     value = int(output[0, i])
                     if value < 0:
                         value = 256 + value
-                    f.write(f"{i}, {value}\n")
-            print(f"  Saved flatten golden vector ({size} elements)")
+                    f.write(f"{value:02X}\n")
+            
+            print(f"  Saved flatten_expected.mem ({size} elements)")
             
         elif layer_name.startswith('fc'):
             size = output.shape[1]
-            filename = f"golden_vectors/{layer_name}_output.txt"
-            with open(filename, 'w') as f:
-                f.write(f"# {layer_name} output: {size} neurons\n")
-                f.write(f"# Format: neuron_index, value\n")
-                
+            mem_filename = f"sim/cnn/golden_vectors/{layer_name}_expected.mem"
+            with open(mem_filename, 'w') as f:
                 for i in range(size):
                     value = int(output[0, i])
                     if value < 0:
                         value = 256 + value
-                    f.write(f"{i}, {value}\n")
-            print(f"  Saved {layer_name} golden vector ({size} neurons)")
-
-def visualize_test_image(image, expected_label, output_scores=None, predicted_label=None):
-    """Visualize the test image and prediction results."""
-    plt.figure(figsize=(8, 4))
-    
-    # Plot the image
-    plt.subplot(1, 2, 1)
-    plt.imshow(image, cmap='gray')
-    plt.title(f"Test Image (Label: {expected_label})")
-    plt.axis('off')
-    
-    # Plot the prediction scores if available
-    if output_scores is not None and predicted_label is not None:
-        plt.subplot(1, 2, 2)
-        plt.bar(range(10), output_scores[0])
-        plt.xticks(range(10))
-        plt.xlabel('Digit')
-        plt.ylabel('Score')
-        plt.title(f"Prediction: {predicted_label}")
-    
-    plt.tight_layout()
-    plt.savefig('golden_vectors/test_image.png')
+                    f.write(f"{value:02X}\n")
+            
+            print(f"  Saved {layer_name}_expected.mem ({size} neurons)")
 
 def main():
     """Main function to run inference and dump intermediate outputs."""
@@ -466,8 +419,6 @@ def main():
     for i, score in enumerate(prediction[0]):
         print(f"  Digit {i}: {score:.4f}")
     
-    # Visualize test image and prediction
-    visualize_test_image(test_image, expected_label, prediction, predicted_label)
     
     print("\n" + "=" * 60)
     print("SUMMARY")
@@ -475,8 +426,7 @@ def main():
     print(f"Expected label: {expected_label}")
     print(f"Float32 prediction: {predicted_label}")
     print(f"Quantized prediction: {predicted_label_q}")
-    print(f"\nGolden vectors saved to 'golden_vectors/' directory")
-    print(f"Expected memory files saved to 'sim/cnn/' directory")
+    print(f"\nGolden vector .mem files saved to 'sim/cnn/golden_vectors/' directory")
     print("Done!")
 
 if __name__ == '__main__':

@@ -105,8 +105,8 @@ module tb_conv_layer_2;
         end
         
         // Load input image and expected outputs
-        $readmemh("sim/cnn/pool1_input.mem", input_flat);
-        $readmemh("sim/cnn/conv2_expected.mem", expected_flat);
+        $readmemh("sim/cnn/golden_vectors/pool1_expected.mem", input_flat);
+        $readmemh("sim/cnn/golden_vectors/conv2_expected.mem", expected_flat);
         
         $display("=== Convolutional Layer 2 Testbench ===");
         $display("Input: %0dx%0dx%0d from pool1, Output: %0dx%0dx%0d", 

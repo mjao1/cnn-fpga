@@ -96,8 +96,8 @@ module tb_conv_layer_1;
         mismatch_count = 0;
         
         // Load input image and expected outputs
-        $readmemh("sim/cnn/input_image.mem", image_flat);
-        $readmemh("sim/cnn/conv1_expected.mem", expected_flat);
+        $readmemh("sim/cnn/test_images/input_image.mem", image_flat);
+        $readmemh("sim/cnn/golden_vectors/conv1_expected.mem", expected_flat);
         
         // Reshape to 2D arrays
         for (i = 0; i < IMG_HEIGHT; i = i + 1) begin

@@ -28,12 +28,13 @@ The implementation follows the LeNet-5 architecture:
 ## Project Structure
 ```
 cnn-fpga/
-├── rtl/cnn/          # CNN RTL modules (Verilog/SystemVerilog)
-├── sim/cnn/          # Component testbenches and golden vectors
-│   └── test_images/  # MNIST test images (.txt and .mem formats)
-├── weights_mem/      # Quantized CNN weights (.mem format)
-├── golden_vectors/   # Expected layer outputs for verification
-└── python/           # Model training, quantization, and test generation
+├── rtl/cnn/                # CNN RTL modules (Verilog/SystemVerilog)
+├── sim/cnn/                # Simulation testbenches and test data
+│   ├── golden_vectors/     # Expected layer outputs for verification (.mem format)
+│   ├── test_images/        # Individual MNIST test images (.txt and .mem formats)
+│   └── test_images_bulk/   # Bulk test images for accuracy test (1000 images, .mem format)
+├── weights_mem/            # Quantized CNN weights and biases (.mem format)
+└── python/                 # Model training, quantization, and test generation
 ```
 
 

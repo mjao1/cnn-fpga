@@ -24,7 +24,7 @@ FIXED_SCALE = float(2 ** FRAC_BITS)
 USE_UNIFORM_SCALE = True
 
 # FC layer scaling factor to prevent output saturation
-FC_SCALE_FACTOR = 2.0
+FC_SCALE_FACTOR = 1.76
 
 def create_lenet5_model():
     """Create the LeNet-5 model architecture."""
@@ -322,6 +322,11 @@ def main():
     test_loss, test_accuracy = model.evaluate(x_test, y_test, verbose=0)
     print(f"Test accuracy: {test_accuracy:.4f}")
     
+    # Save model weights for use in test_lenet5.py
+    model_weights_path = 'python/lenet5.weights.h5'
+    print(f"Saving model weights to {model_weights_path}...")
+    model.save_weights(model_weights_path)
+
     print("Exporting weights to MEM format...")
     export_weights_to_mem(model)
     
