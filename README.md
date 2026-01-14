@@ -117,8 +117,24 @@ iverilog -g2012 -o sim/cnn/tb_fc_layers.vvp sim/cnn/tb_fc_layers.v rtl/cnn/*.v r
 ```bash
 iverilog -g2012 -o sim/cnn/tb_cnn_top_bulk.vvp sim/cnn/tb_cnn_top_bulk.sv rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_cnn_top_bulk.vvp
 ```
-- Tests the CNN on 1000 MNIST images (100 per digit) and measures accuracy
-- Accuracy is highly dependent on the quality of test images from the dataset
+- Tests the CNN on 1000 MNIST test set images (100 per digit) and measures correctness
+- Currently, the CNN achieves ~90.1% inference accuracy across this test:
+```bash
+=== Accuracy Results ===
+
+Digit 0: 83/100 correct (83%)
+Digit 1: 92/100 correct (92%)
+Digit 2: 98/100 correct (98%)
+Digit 3: 90/100 correct (90%)
+Digit 4: 99/100 correct (99%)
+Digit 5: 93/100 correct (93%)
+Digit 6: 74/100 correct (74%)
+Digit 7: 93/100 correct (93%)
+Digit 8: 94/100 correct (94%)
+Digit 9: 85/100 correct (85%)
+
+Total Accuracy: 901/1000 correct (90.10%)
+```
 
 ## Generating Test Images
 
