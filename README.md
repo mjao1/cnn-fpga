@@ -42,7 +42,8 @@ cnn-fpga/
 
 ### CNN Components
 - **cnn_top**: Top level state machine coordinating data flow through all layers (conv→relu→pool→flatten→fc), managing layer transitions and pipeline synchronization
-- **conv_5x5**: Core 5×5 convolution kernel performing element-wise multiplication, accumulation in 24-bit precision, bias addition, and Q1.7 scaling with saturation
+- **mult_8x8_signed**: Optimized 8-bit signed multiplier using tree structured partial products for Q1.7 arithmetic
+- **conv_5x5**: Core 5×5 convolution MAC engine performing 25 parallel multiplications using optimized 8-bit multipliers, accumulation in 24-bit precision, bias addition, and Q1.7 scaling with saturation
 - **conv_layer_1**: First convolutional layer implementing 6 parallel 5×5 filters, line buffering for 28×28 input, weight loading from BRAM, and ReLU activation
 - **conv_layer_2**: Second convolutional layer implementing 16 parallel 5×5 filters, full-precision multi-channel accumulation across 6 input channels, weight loading from BRAM, and ReLU activation
 - **max_pool_2x2**: 2×2 max pooling unit with signed comparison
@@ -80,7 +81,7 @@ iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/
 ### Individual module tests
 ```bash
 # conv_5x5
-iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v && vvp sim/cnn/tb_conv_5x5.vvp
+iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v rtl/cnn/mult_8x8_signed.v && vvp sim/cnn/tb_conv_5x5.vvp
 
 # conv_layer_1
 iverilog -g2012 -o sim/cnn/tb_conv_layer_1.vvp sim/cnn/tb_conv_layer_1.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_conv_layer_1.vvp
