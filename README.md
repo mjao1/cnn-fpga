@@ -1,6 +1,6 @@
 # cnn-fpga
 ## Project Overview
-This project implements a LeNet-5 Convolutional Neural Network (CNN) in RTL Verilog/SystemVerilog for real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for FPGA deployment using uniform Q1.7 fixed-point quantization.
+A LeNet-5 Convolutional Neural Network (CNN) accelerator implemented in synthesizable RTL Verilog/SystemVerilog for real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for FPGA deployment using uniform Q1.7 fixed-point quantization.
 
 <img src="./python/plots/predictions.png" width="70%" alt="MNIST Recognition">
 
@@ -136,6 +136,15 @@ Digit 9: 85/100 correct (85%)
 
 Total Accuracy: 901/1000 correct (90.10%)
 ```
+
+
+## Synthesis
+
+```bash
+yosys synth.ys
+```
+Output: `synth_cnn_top.v`
+
 
 ## Generating Test Images
 

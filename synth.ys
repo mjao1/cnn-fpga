@@ -1,0 +1,45 @@
+# Top module: cnn_top
+
+read_verilog rtl/cnn/mult_8x8_signed.v
+read_verilog rtl/cnn/conv_5x5.v
+read_verilog rtl/cnn/relu.v
+read_verilog rtl/cnn/max_pool_2x2.v
+read_verilog rtl/cnn/bram_weights.v
+
+read_verilog rtl/cnn/conv1_weight_mem.v
+read_verilog rtl/cnn/conv1_bias_mem.v
+read_verilog rtl/cnn/conv2_weight_mem.v
+read_verilog rtl/cnn/conv2_bias_mem.v
+read_verilog rtl/cnn/fc1_weight_mem.v
+read_verilog rtl/cnn/fc1_bias_mem.v
+read_verilog rtl/cnn/fc2_weight_mem.v
+read_verilog rtl/cnn/fc2_bias_mem.v
+read_verilog rtl/cnn/fc3_weight_mem.v
+read_verilog rtl/cnn/fc3_bias_mem.v
+
+read_verilog rtl/cnn/conv_layer_1.v
+read_verilog rtl/cnn/conv_layer_2.v
+read_verilog rtl/cnn/pool_layer_1.v
+read_verilog rtl/cnn/pool_layer_2.v
+read_verilog rtl/cnn/flatten.v
+read_verilog rtl/cnn/fc_layer_1.v
+read_verilog rtl/cnn/fc_layer_2.v
+read_verilog rtl/cnn/fc_layer_3.v
+read_verilog rtl/cnn/fc_layers.v
+
+read_verilog -sv rtl/cnn/weight_loader.sv
+read_verilog -sv rtl/cnn/cnn_top.sv
+
+hierarchy -check -top cnn_top
+
+proc
+
+opt -full
+techmap
+opt
+
+write_verilog synth_cnn_top.v
+
+stat
+
+hierarchy -check
