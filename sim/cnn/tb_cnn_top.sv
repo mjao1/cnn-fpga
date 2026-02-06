@@ -66,7 +66,6 @@ module tb_cnn_top;
             5'd0: state_name = "IDLE";
             5'd1: state_name = "LOAD_IMAGE";
             5'd2: state_name = "CONV1";
-            5'd3: state_name = "POOL1";
             5'd4: state_name = "CONV2";
             5'd5: state_name = "FLATTEN";
             5'd6: state_name = "FC_LAYERS";

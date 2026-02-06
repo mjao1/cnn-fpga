@@ -26,7 +26,6 @@ module cnn_top #(
         IDLE          = 5'd0,
         LOAD_IMAGE    = 5'd1,
         CONV1         = 5'd2,
-        POOL1         = 5'd3,
         CONV2         = 5'd4,
         FLATTEN       = 5'd5,
         FC_LAYERS     = 5'd6,
@@ -404,21 +403,15 @@ module cnn_top #(
                             x_pos <= x_pos + 5'd1;
                         end
                     end else begin
-                        // All pixels sent, wait for POOL1 to complete
                         conv1_valid_in <= 1'b0;
-                        state <= POOL1;
-                    end
-                end
-                
-                POOL1: begin
-                    // Wait for all pool1 outputs to be buffered and conv2 weight loading complete
-                    if (pool1_buffer_complete && conv2_ready) begin
-                        conv2_count <= 6'd0;
-                        conv2_feed_x <= 8'd0;
-                        conv2_feed_y <= 8'd0;
-                        conv2_feed_count <= 8'd1;
-                        conv2_feed_valid <= 1'b1;
-                        state <= CONV2;
+                        if (pool1_buffer_complete && conv2_ready) begin
+                            conv2_count <= 6'd0;
+                            conv2_feed_x <= 8'd0;
+                            conv2_feed_y <= 8'd0;
+                            conv2_feed_count <= 8'd1;
+                            conv2_feed_valid <= 1'b1;
+                            state <= CONV2;
+                        end
                     end
                 end
                 
