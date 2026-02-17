@@ -2,7 +2,12 @@
 ## Project Overview
 A LeNet-5 Convolutional Neural Network (CNN) accelerator implemented in synthesizable RTL Verilog/SystemVerilog for real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for FPGA deployment using uniform Q1.7 fixed-point quantization.
 
-<img src="./python/plots/predictions.png" width="70%" alt="MNIST Recognition">
+<p align="center">
+  <img src="./python/plots/lenet5-diagram.png" width="100%" alt="LeNet-5 Architecture">
+</p>
+<p align="center">
+  <img src="./python/plots/predictions.png" width="100%" alt="MNIST Recognition">
+</p>
 
 ## Architecture Overview
 
