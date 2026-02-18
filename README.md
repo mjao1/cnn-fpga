@@ -47,18 +47,18 @@ cnn-fpga/
 
 ### CNN Components
 - **cnn_top**: Top level state machine coordinating data flow through all layers (conv→relu→pool→flatten→fc), managing layer transitions and pipeline synchronization
-- **mult_8x8_signed**: Optimized 8-bit signed multiplier using tree structured partial products for Q1.7 arithmetic
-- **conv_5x5**: Core 5×5 convolution MAC engine performing 25 parallel multiplications using optimized 8-bit multipliers, accumulation in 24-bit precision, bias addition, and Q1.7 scaling with saturation
 - **conv_layer_1**: First convolutional layer implementing 6 parallel 5×5 filters, line buffering for 28×28 input, weight loading from BRAM, and ReLU activation
 - **conv_layer_2**: Second convolutional layer implementing 16 parallel 5×5 filters, full-precision multi-channel accumulation across 6 input channels, weight loading from BRAM, and ReLU activation
-- **max_pool_2x2**: 2×2 max pooling unit with signed comparison
+- **conv_5x5**: Core 5×5 convolution MAC engine performing 25 parallel multiplications using optimized 8-bit multipliers, accumulation in 24-bit precision, bias addition, and Q1.7 scaling with saturation
+- **mult_8x8_signed**: Optimized 8-bit signed multiplier using tree structured partial products for Q1.7 arithmetic
+- **relu**: ReLU activation function implementing max(0, x) for signed 8-bit Q1.7 values
 - **pool_layer_1**: First pooling layer processing 6 channels of 24×24 feature maps with line buffering, producing 6×12×12 output
 - **pool_layer_2**: Second pooling layer processing 16 channels of 8×8 feature maps with line buffering, producing 16×4×4 output
+- **max_pool_2x2**: 2×2 max pooling unit with signed comparison
 - **flatten**: Converts multi-dimensional feature maps (16×4×4) into a 256-element 1D vector for fully connected layers
 - **fc_layer_1**: First fully connected layer performing matrix-vector multiplication (256→120), weight/bias access from BRAM with proper latency handling, and ReLU activation
 - **fc_layer_2**: Second fully connected layer performing matrix-vector multiplication (120→84), weight/bias access from BRAM with proper latency handling, and ReLU activation
 - **fc_layer_3**: Output layer performing matrix-vector multiplication (84→10) for digit classification, weight/bias access from BRAM with proper latency handling, no activation
-- **relu**: ReLU activation function implementing max(0, x) for signed 8-bit Q1.7 values
 - **weight_loader**: Centralized module routing weight and bias requests to BRAM memory modules based on layer selection
 
 
