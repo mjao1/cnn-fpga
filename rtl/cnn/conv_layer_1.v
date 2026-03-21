@@ -61,19 +61,28 @@ module conv_layer_1 #(
     wire signed [DATA_WIDTH-1:0] loaded_weight;
     wire signed [DATA_WIDTH-1:0] loaded_bias;
     
-    weight_loader #(
-        .DATA_WIDTH(DATA_WIDTH)
-    ) weight_loader_inst (
+    conv1_weight_mem #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_FILTERS(NUM_FILTERS),
+        .KERNEL_SIZE(KERNEL_SIZE),
+        .IN_CHANNELS(1)
+    ) conv1_weights (
         .clk(clk),
         .rst(rst),
-        .layer_select(8'd0),
         .filter_idx(current_filter),
         .in_channel(8'd0),
         .kernel_row(current_kernel / KERNEL_SIZE),
         .kernel_col(current_kernel % KERNEL_SIZE),
-        .input_idx(16'd0),
-        .neuron_idx(16'd0),
-        .weight_out(loaded_weight),
+        .weight_out(loaded_weight)
+    );
+
+    conv1_bias_mem #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_FILTERS(NUM_FILTERS)
+    ) conv1_biases (
+        .clk(clk),
+        .rst(rst),
+        .filter_idx(current_filter),
         .bias_out(loaded_bias)
     );
     

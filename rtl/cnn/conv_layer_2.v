@@ -74,19 +74,28 @@ module conv_layer_2 #(
         end
     endgenerate
     
-    weight_loader #(
-        .DATA_WIDTH(DATA_WIDTH)
-    ) weight_loader_inst (
+    conv2_weight_mem #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_FILTERS(OUT_CHANNELS),
+        .KERNEL_SIZE(KERNEL_SIZE),
+        .IN_CHANNELS(IN_CHANNELS)
+    ) conv2_weights (
         .clk(clk),
         .rst(rst),
-        .layer_select(8'd1),
         .filter_idx(current_filter),
         .in_channel(current_channel),
         .kernel_row(current_kernel / KERNEL_SIZE),
         .kernel_col(current_kernel % KERNEL_SIZE),
-        .input_idx(16'd0),
-        .neuron_idx(16'd0),
-        .weight_out(loaded_weight),
+        .weight_out(loaded_weight)
+    );
+
+    conv2_bias_mem #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_FILTERS(OUT_CHANNELS)
+    ) conv2_biases (
+        .clk(clk),
+        .rst(rst),
+        .filter_idx(current_filter),
         .bias_out(loaded_bias)
     );
     

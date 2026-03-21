@@ -27,7 +27,6 @@ read_verilog rtl/cnn/fc_layer_2.v
 read_verilog rtl/cnn/fc_layer_3.v
 read_verilog rtl/cnn/fc_layers.v
 
-read_verilog -sv rtl/cnn/weight_loader.sv
 read_verilog -sv rtl/cnn/cnn_top.sv
 
 hierarchy -check -top cnn_top

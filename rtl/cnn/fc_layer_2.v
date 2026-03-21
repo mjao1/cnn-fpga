@@ -47,19 +47,25 @@ module fc_layer_2 #(
     reg [$clog2(IN_FEATURES):0] valid_count;
     reg process_ready;
     
-    weight_loader #(
-        .DATA_WIDTH(DATA_WIDTH)
-    ) weight_loader_inst (
+    fc2_weight_mem #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .IN_FEATURES(IN_FEATURES),
+        .OUT_FEATURES(OUT_FEATURES)
+    ) fc2_weights (
         .clk(clk),
         .rst(rst),
-        .layer_select(8'd3),          // FC2 layer
-        .filter_idx(8'd0),            // Not used
-        .in_channel(8'd0),            // Not used
-        .kernel_row(8'd0),            // Not used
-        .kernel_col(8'd0),            // Not used
-        .input_idx({9'd0, current_input}),  // Which input feature (0-119)
-        .neuron_idx({9'd0, current_neuron}), // Which output neuron (0-83)
-        .weight_out(weight),
+        .neuron_idx({9'd0, current_neuron}),
+        .input_idx({9'd0, current_input}),
+        .weight_out(weight)
+    );
+
+    fc2_bias_mem #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_NEURONS(OUT_FEATURES)
+    ) fc2_biases (
+        .clk(clk),
+        .rst(rst),
+        .neuron_idx({9'd0, current_neuron}),
         .bias_out(bias)
     );
     
