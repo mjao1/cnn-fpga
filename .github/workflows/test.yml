@@ -1,0 +1,90 @@
+name: RTL Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install iverilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: conv_5x5
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v rtl/cnn/mult_8x8_signed.v
+          vvp sim/cnn/tb_conv_5x5.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: relu
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_relu.vvp sim/cnn/tb_relu.v rtl/cnn/relu.v
+          vvp sim/cnn/tb_relu.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: flatten
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_flatten.vvp sim/cnn/tb_flatten.sv rtl/cnn/flatten.v
+          vvp sim/cnn/tb_flatten.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: pool_layer_1
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_pool_layer_1.vvp sim/cnn/tb_pool_layer_1.sv rtl/cnn/pool_layer_1.v rtl/cnn/max_pool_2x2.v
+          vvp sim/cnn/tb_pool_layer_1.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: pool_layer_2
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_pool_layer_2.vvp sim/cnn/tb_pool_layer_2.sv rtl/cnn/pool_layer_2.v rtl/cnn/max_pool_2x2.v
+          vvp sim/cnn/tb_pool_layer_2.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: conv_layer_1
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_conv_layer_1.vvp sim/cnn/tb_conv_layer_1.v rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_conv_layer_1.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: conv_layer_2
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_conv_layer_2.vvp sim/cnn/tb_conv_layer_2.sv rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_conv_layer_2.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: fc_layer_1
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_fc_layer_1.vvp sim/cnn/tb_fc_layer_1.v rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_fc_layer_1.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: fc_layer_2
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_fc_layer_2.vvp sim/cnn/tb_fc_layer_2.v rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_fc_layer_2.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: fc_layer_3
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_fc_layer_3.vvp sim/cnn/tb_fc_layer_3.v rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_fc_layer_3.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: fc_layers
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_fc_layers.vvp sim/cnn/tb_fc_layers.v rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_fc_layers.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
+
+      - name: cnn_top (full pipeline)
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_cnn_top.vvp | tee test_output.log
+          ! grep -qi 'FAIL\|ERROR' test_output.log
