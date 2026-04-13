@@ -2,3 +2,4 @@ spec.md
 __pycache__/
 venv/
 *.vvp
+synth_cnn_top.v
