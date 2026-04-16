@@ -8,7 +8,10 @@ module fc_layers #(
     parameter FC2_OUT_FEATURES = 84,
     parameter FC3_IN_FEATURES = 84,
     parameter FC3_OUT_FEATURES = 10,
-    parameter DATA_WIDTH = 8
+    parameter DATA_WIDTH = 8,
+    parameter FC1_NUM_PARALLEL = 10,
+    parameter FC2_NUM_PARALLEL = 12,
+    parameter FC3_NUM_PARALLEL = 10
 )(
     input wire clk,
     input wire rst,
@@ -60,7 +63,8 @@ module fc_layers #(
     fc_layer_1 #(
         .IN_FEATURES(FC1_IN_FEATURES),
         .OUT_FEATURES(FC1_OUT_FEATURES),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_PARALLEL(FC1_NUM_PARALLEL)
     ) fc1 (
         .clk(clk),
         .rst(rst),
@@ -77,7 +81,8 @@ module fc_layers #(
     fc_layer_2 #(
         .IN_FEATURES(FC2_IN_FEATURES),
         .OUT_FEATURES(FC2_OUT_FEATURES),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_PARALLEL(FC2_NUM_PARALLEL)
     ) fc2 (
         .clk(clk),
         .rst(rst),
@@ -94,7 +99,8 @@ module fc_layers #(
     fc_layer_3 #(
         .IN_FEATURES(FC3_IN_FEATURES),
         .OUT_FEATURES(FC3_OUT_FEATURES),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_PARALLEL(FC3_NUM_PARALLEL)
     ) fc3 (
         .clk(clk),
         .rst(rst),

@@ -56,9 +56,9 @@ cnn-fpga/
 - **pool_layer_2**: Second pooling layer processing 16 channels of 8×8 feature maps with line buffering, producing 16×4×4 output
 - **max_pool_2x2**: 2×2 max pooling unit with signed comparison
 - **flatten**: Converts multi-dimensional feature maps (16×4×4) into a 256-element 1D vector for fully connected layers
-- **fc_layer_1**: First fully connected layer performing matrix-vector multiplication (256→120), weight/bias access from BRAM with proper latency handling, and ReLU activation
-- **fc_layer_2**: Second fully connected layer performing matrix-vector multiplication (120→84), weight/bias access from BRAM with proper latency handling, and ReLU activation
-- **fc_layer_3**: Output layer performing matrix-vector multiplication (84→10) for digit classification, weight/bias access from BRAM with proper latency handling, no activation
+- **fc_layer_1**: First fully connected layer performing matrix-vector multiplication (256→120) with 10 parallel neurons (12 batches), BRAM weight/bias reads, and ReLU activation
+- **fc_layer_2**: Second fully connected layer performing matrix-vector multiplication (120→84) with 12 parallel neurons (7 batches), BRAM weight/bias reads, and ReLU activation
+- **fc_layer_3**: Output layer performing matrix-vector multiplication (84→10) with a 10 parallel neurons (1 batch) for digit classification, BRAM weight/bias reads, no activation
 - **weight_loader**: Centralized module routing weight and bias requests to BRAM memory modules based on layer selection
 
 
