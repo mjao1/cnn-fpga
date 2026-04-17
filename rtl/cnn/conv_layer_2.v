@@ -24,7 +24,8 @@ module conv_layer_2 #(
     output reg [(DATA_WIDTH*OUT_CHANNELS)-1:0] data_out, // 16 parallel output channels
     output reg [7:0] x_out,                      // X coordinate of output pixel
     output reg [7:0] y_out,                      // Y coordinate of output pixel
-    output wire ready                            // Ready signal (weight loading complete)
+    output wire ready,                           // Ready signal (weight loading complete)
+    output wire busy
 );
 
     reg [DATA_WIDTH-1:0] line_buffer [0:IN_CHANNELS-1][0:KERNEL_SIZE-1][0:MAP_WIDTH-1];
@@ -35,6 +36,13 @@ module conv_layer_2 #(
     
     reg [7:0] x_count, y_count;
     reg window_valid;
+
+    reg serial_busy;
+    reg serial_busy_d;
+    reg [5:0] ser_step;
+    reg signed [DATA_WIDTH-1:0] latch_win [0:IN_CHANNELS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
+
+    assign busy = serial_busy;
 
     wire valid_conv [0:OUT_CHANNELS-1];
     wire signed [DATA_WIDTH-1:0] conv_out [0:OUT_CHANNELS-1];
@@ -190,6 +198,27 @@ module conv_layer_2 #(
             end
         end
     endgenerate
+
+    wire conv_start;
+    assign conv_start = serial_busy & ~serial_busy_d;
+
+    wire signed [DATA_WIDTH-1:0] conv_din [0:IN_CHANNELS-1];
+    genvar ldci;
+    generate
+        for (ldci = 0; ldci < IN_CHANNELS; ldci = ldci + 1) begin : din_mux
+            assign conv_din[ldci] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? latch_win[ldci][ser_step - 6'd1] : 8'sd0;
+        end
+    endgenerate
+
+    wire signed [DATA_WIDTH-1:0] conv_w_in [0:OUT_CHANNELS-1][0:IN_CHANNELS-1];
+    genvar wf, wc;
+    generate
+        for (wf = 0; wf < OUT_CHANNELS; wf = wf + 1) begin : w_row
+            for (wc = 0; wc < IN_CHANNELS; wc = wc + 1) begin : w_col
+                assign conv_w_in[wf][wc] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? weight[wf][wc][ser_step - 6'd1] : (serial_busy & (ser_step == 6'd26)) ? 8'd0 : 8'sd0;
+            end
+        end
+    endgenerate
     
     // Instantiate conv_5x5 modules for each filter and input channel combination
     generate
@@ -212,45 +241,10 @@ module conv_layer_2 #(
                 ) conv_inst (
                     .clk(clk),
                     .rst(rst),
-                    .valid_in(window_valid && (state == RUNNING)),
-                    
-                    // Pass window data for this channel
-                    .data_in_00(window_flat[chan][0]), .data_in_01(window_flat[chan][1]), 
-                    .data_in_02(window_flat[chan][2]), .data_in_03(window_flat[chan][3]), 
-                    .data_in_04(window_flat[chan][4]),
-                    .data_in_10(window_flat[chan][5]), .data_in_11(window_flat[chan][6]), 
-                    .data_in_12(window_flat[chan][7]), .data_in_13(window_flat[chan][8]), 
-                    .data_in_14(window_flat[chan][9]),
-                    .data_in_20(window_flat[chan][10]), .data_in_21(window_flat[chan][11]), 
-                    .data_in_22(window_flat[chan][12]), .data_in_23(window_flat[chan][13]), 
-                    .data_in_24(window_flat[chan][14]),
-                    .data_in_30(window_flat[chan][15]), .data_in_31(window_flat[chan][16]), 
-                    .data_in_32(window_flat[chan][17]), .data_in_33(window_flat[chan][18]), 
-                    .data_in_34(window_flat[chan][19]),
-                    .data_in_40(window_flat[chan][20]), .data_in_41(window_flat[chan][21]), 
-                    .data_in_42(window_flat[chan][22]), .data_in_43(window_flat[chan][23]), 
-                    .data_in_44(window_flat[chan][24]),
-                    
-                    // Pass weights for this filter/channel combination
-                    .weight_00(weight[f][chan][0]), .weight_01(weight[f][chan][1]), 
-                    .weight_02(weight[f][chan][2]), .weight_03(weight[f][chan][3]), 
-                    .weight_04(weight[f][chan][4]),
-                    .weight_10(weight[f][chan][5]), .weight_11(weight[f][chan][6]), 
-                    .weight_12(weight[f][chan][7]), .weight_13(weight[f][chan][8]), 
-                    .weight_14(weight[f][chan][9]),
-                    .weight_20(weight[f][chan][10]), .weight_21(weight[f][chan][11]), 
-                    .weight_22(weight[f][chan][12]), .weight_23(weight[f][chan][13]), 
-                    .weight_24(weight[f][chan][14]),
-                    .weight_30(weight[f][chan][15]), .weight_31(weight[f][chan][16]), 
-                    .weight_32(weight[f][chan][17]), .weight_33(weight[f][chan][18]), 
-                    .weight_34(weight[f][chan][19]),
-                    .weight_40(weight[f][chan][20]), .weight_41(weight[f][chan][21]), 
-                    .weight_42(weight[f][chan][22]), .weight_43(weight[f][chan][23]), 
-                    .weight_44(weight[f][chan][24]),
-                    
-                    .bias(8'd0), // Use 0 for individual channel biases, add real bias later
-                    
-                    .valid_out(conv_valid[chan]),
+                    .start(conv_start),
+                    .data_in(conv_din[chan]),
+                    .weight_in(conv_w_in[f][chan]),
+                    .done(conv_valid[chan]),
                     .data_out(conv_result[chan]),
                     .raw_sum(conv_raw_sum[chan])
                 );
@@ -328,6 +322,9 @@ module conv_layer_2 #(
     // Process input data and update window
     always @(posedge clk) begin
         if (rst) begin
+            serial_busy <= 1'b0;
+            serial_busy_d <= 1'b0;
+            ser_step <= 6'd0;
             x_count <= 8'd0;
             y_count <= 8'd0;
             window_valid <= 1'b0;
@@ -360,6 +357,16 @@ module conv_layer_2 #(
             data_out <= {(DATA_WIDTH*OUT_CHANNELS){1'b0}};
             
         end else begin
+            serial_busy_d <= serial_busy;
+
+            if (serial_busy) begin
+                if (ser_step == 6'd28) begin
+                    serial_busy <= 1'b0;
+                    ser_step <= 6'd0;
+                end else
+                    ser_step <= ser_step + 6'd1;
+            end
+
             if (valid_out) begin
                 if (x_out == OUT_WIDTH-1) begin
                     x_out <= 0;
@@ -377,7 +384,7 @@ module conv_layer_2 #(
             valid_out <= 1'b0;
             
             // Process input data and update windows
-            if (valid_in) begin
+            if (valid_in && !serial_busy) begin
                 x_count <= x_in;
                 y_count <= y_in;
                 
@@ -399,6 +406,20 @@ module conv_layer_2 #(
                         end
                     end
                     window_valid <= 1'b1;
+                    if (state == RUNNING) begin
+                        for (ii = 0; ii < IN_CHANNELS; ii = ii + 1) begin
+                            for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
+                                for (kk = 0; kk < KERNEL_SIZE; kk = kk + 1) begin
+                                    if (jj == KERNEL_SIZE-1 && kk == KERNEL_SIZE-1)
+                                        latch_win[ii][jj * KERNEL_SIZE + kk] <= data_in_channel[ii];
+                                    else
+                                        latch_win[ii][jj * KERNEL_SIZE + kk] <= line_buffer[ii][(y_in - (KERNEL_SIZE-1) + jj) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1) + kk];
+                                end
+                            end
+                        end
+                        serial_busy <= 1'b1;
+                        ser_step <= 6'd0;
+                    end
                 end
                 
                 // Line buffer handling

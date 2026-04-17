@@ -10,7 +10,7 @@ module tb_cnn_top;
     parameter IMG_WIDTH = 28;
     parameter IMG_HEIGHT = 28;
     parameter NUM_PIXELS = IMG_WIDTH * IMG_HEIGHT;
-    parameter ENABLE_GOLDEN_COMPARE = 0;
+    parameter ENABLE_GOLDEN_COMPARE = 1;
 
     // Golden vector sizes
     parameter CONV1_SIZE = 6 * 24 * 24; // 3456
@@ -163,7 +163,7 @@ module tb_cnn_top;
         fork
             begin : timeout
                 #(CLK_PERIOD*1000000);
-                $display("ERROR: Timeout reached");
+                $display("ERROR: Timeout (state=%s)", state_name);
                 print_summary();
                 $finish;
             end
@@ -264,8 +264,8 @@ module tb_cnn_top;
                     end
                 end
             end
-                end
-            end
+        end
+    end
             
     // POOL1 output verification
     integer pool1_idx;
@@ -314,8 +314,8 @@ module tb_cnn_top;
                     end
                 end
             end
-                end
-            end
+        end
+    end
             
     // POOL2 output verification
     integer pool2_idx;
@@ -412,7 +412,7 @@ module tb_cnn_top;
                 end
             end
         end
-            end
+    end
             
     // FC3 output verification
     reg [DATA_WIDTH-1:0] fc3_exp, fc3_act;

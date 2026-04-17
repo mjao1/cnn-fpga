@@ -40,9 +40,9 @@ module cnn_top #(
     
     logic [9:0] pixel_count;
     logic [4:0] x_pos, y_pos;
+    logic [4:0] conv1_rd_x, conv1_rd_y;
     logic [5:0] conv2_count;
     logic [3:0] fc_count;
-    logic [7:0] conv2_feed_count;
     
     // Conv Layer 1 signals
     logic conv1_start;
@@ -58,6 +58,7 @@ module cnn_top #(
     logic [DATA_WIDTH-1:0] conv1_data_out_4;
     logic [DATA_WIDTH-1:0] conv1_data_out_5;
     logic [8:0] conv1_x_out, conv1_y_out;
+    logic conv1_busy;
     
     // Pack conv1 output channels
     wire [DATA_WIDTH*6-1:0] conv1_data_out = {
@@ -95,6 +96,7 @@ module cnn_top #(
     logic [DATA_WIDTH*16-1:0] conv2_data_out;
     logic [7:0] conv2_x_out, conv2_y_out;
     logic conv2_ready;  // Indicates conv_layer_2 weight loading complete
+    logic conv2_busy;
     
     // Pool Layer 2 signals
     logic pool2_valid_out;
@@ -152,7 +154,8 @@ module cnn_top #(
         .data_out_4(conv1_data_out_4),
         .data_out_5(conv1_data_out_5),
         .x_out(conv1_x_out),
-        .y_out(conv1_y_out)
+        .y_out(conv1_y_out),
+        .busy(conv1_busy)
     );
     
     // Pool Layer 1 (6x24x24 -> 6x12x12)
@@ -197,7 +200,8 @@ module cnn_top #(
         .data_out(conv2_data_out),
         .x_out(conv2_x_out),
         .y_out(conv2_y_out),
-        .ready(conv2_ready)
+        .ready(conv2_ready),
+        .busy(conv2_busy)
     );
     
     // Pool Layer 2 (16x8x8 -> 16x4x4)
@@ -300,10 +304,11 @@ module cnn_top #(
             conv2_feed_x <= 8'd0;
             conv2_feed_y <= 8'd0;
             conv2_feed_valid <= 1'b0;
-            conv2_feed_count <= 8'd0;
             pool2_complete <= 1'b0;
             x_pos <= 5'd0;
             y_pos <= 5'd0;
+            conv1_rd_x <= 5'd0;
+            conv1_rd_y <= 5'd0;
             
             for (int i = 0; i < IMG_HEIGHT; i++) begin
                 for (int j = 0; j < IMG_WIDTH; j++) begin
@@ -383,52 +388,59 @@ module cnn_top #(
                             // Reset pos for CONV1
                             x_pos <= 5'd0;
                             y_pos <= 5'd0;
+                            conv1_rd_x <= 5'd0;
+                            conv1_rd_y <= 5'd0;
                         end
                     end
                 end
                 
                 CONV1: begin
-                    // Send data through Conv1 layer
-                    if (y_pos < IMG_HEIGHT && x_pos < IMG_WIDTH) begin
-                        conv1_valid_in <= 1'b1;
-                        conv1_data_in <= image_buffer[y_pos][x_pos];
-                        conv1_x_in <= {4'd0, x_pos};
-                        conv1_y_in <= {4'd0, y_pos};
-                        
-                        // Move to next pixel
-                        if (x_pos == IMG_WIDTH - 1) begin
-                            x_pos <= 5'd0;
-                            y_pos <= y_pos + 5'd1;
+                    // Read pointer advances only when conv accepts (valid_in && !conv1_busy).
+                    // Hold valid high if busy so the handshake can complete next cycle.
+                    if (conv1_valid_in && !conv1_busy) begin
+                        if (conv1_rd_x == IMG_WIDTH - 1) begin
+                            conv1_rd_x <= 5'd0;
+                            conv1_rd_y <= conv1_rd_y + 5'd1;
                         end else begin
-                            x_pos <= x_pos + 5'd1;
+                            conv1_rd_x <= conv1_rd_x + 5'd1;
                         end
-                    end else begin
                         conv1_valid_in <= 1'b0;
+                    end else if (!conv1_busy && conv1_rd_y < IMG_HEIGHT && conv1_rd_x < IMG_WIDTH) begin
+                        conv1_valid_in <= 1'b1;
+                        conv1_data_in <= image_buffer[conv1_rd_y][conv1_rd_x];
+                        conv1_x_in <= {4'd0, conv1_rd_x};
+                        conv1_y_in <= {4'd0, conv1_rd_y};
+                    end else begin
+                        if (conv1_valid_in && conv1_busy)
+                            conv1_valid_in <= conv1_valid_in;
+                        else
+                            conv1_valid_in <= 1'b0;
                         if (pool1_buffer_complete && conv2_ready) begin
                             conv2_count <= 6'd0;
                             conv2_feed_x <= 8'd0;
                             conv2_feed_y <= 8'd0;
-                            conv2_feed_count <= 8'd1;
-                            conv2_feed_valid <= 1'b1;
                             state <= CONV2;
                         end
                     end
                 end
                 
                 CONV2: begin
-                    // Feed buffered pool1 data to conv2 in order
-                    if (conv2_feed_count < 8'd144) begin
-                        conv2_feed_valid <= 1'b1;
-                        conv2_feed_count <= conv2_feed_count + 8'd1;
-                        
+                    // Advance read pointer only when conv2 accepts (valid && !busy); hold valid if busy.
+                    if (conv2_feed_valid && !conv2_busy) begin
                         if (conv2_feed_x == 8'd11) begin
                             conv2_feed_x <= 8'd0;
                             conv2_feed_y <= conv2_feed_y + 8'd1;
                         end else begin
                             conv2_feed_x <= conv2_feed_x + 8'd1;
                         end
-                    end else begin
                         conv2_feed_valid <= 1'b0;
+                    end else if (!conv2_busy && conv2_feed_y < 8'd12 && conv2_feed_x < 8'd12) begin
+                        conv2_feed_valid <= 1'b1;
+                    end else begin
+                        if (conv2_feed_valid && conv2_busy)
+                            conv2_feed_valid <= conv2_feed_valid;
+                        else
+                            conv2_feed_valid <= 1'b0;
                     end
                     
                     if (conv2_valid_out && conv2_count < 6'd63) begin

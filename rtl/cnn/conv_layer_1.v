@@ -27,7 +27,8 @@ module conv_layer_1 #(
     output reg [DATA_WIDTH-1:0] data_out_4,      // Output for filter 4
     output reg [DATA_WIDTH-1:0] data_out_5,      // Output for filter 5
     output reg [8:0] x_out,                      // X coordinate of output pixel
-    output reg [8:0] y_out                       // Y coordinate of output pixel
+    output reg [8:0] y_out,                      // Y coordinate of output pixel
+    output wire busy
 );
 
     reg [DATA_WIDTH-1:0] line_buffer [0:KERNEL_SIZE-1][0:IMG_WIDTH-1];
@@ -38,6 +39,11 @@ module conv_layer_1 #(
     
     reg [8:0] x_count, y_count;
     reg window_valid;
+
+    reg serial_busy;
+    reg serial_busy_d;
+    reg [5:0] ser_step;
+    assign busy = serial_busy;
     
     wire valid_conv [0:NUM_FILTERS-1];
     wire signed [DATA_WIDTH-1:0] conv_out [0:NUM_FILTERS-1];
@@ -168,6 +174,20 @@ module conv_layer_1 #(
         end
     endgenerate
     
+    wire conv_start;
+    wire signed [DATA_WIDTH-1:0] conv_data_in;
+    wire signed [DATA_WIDTH-1:0] conv_weight_in [0:NUM_FILTERS-1];
+
+    assign conv_start = serial_busy & ~serial_busy_d;
+    assign conv_data_in = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? window_flat[ser_step - 6'd1] : 8'sd0;
+    
+    genvar gwf;
+    generate
+        for (gwf = 0; gwf < NUM_FILTERS; gwf = gwf + 1) begin : wt_mux
+            assign conv_weight_in[gwf] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? weight[gwf][ser_step - 6'd1] : (serial_busy & (ser_step == 6'd26)) ? bias[gwf] : 8'sd0;
+        end
+    endgenerate
+
     // Instantiate 6 convolution modules for each filter
     generate
         genvar gf;
@@ -177,33 +197,11 @@ module conv_layer_1 #(
             ) conv_inst (
                 .clk(clk),
                 .rst(rst),
-                .valid_in(window_valid && (state == RUNNING)),
+                .start(conv_start),
+                .data_in(conv_data_in),
+                .weight_in(conv_weight_in[gf]),
 
-                .data_in_00(window_flat[0]), .data_in_01(window_flat[1]), .data_in_02(window_flat[2]), 
-                .data_in_03(window_flat[3]), .data_in_04(window_flat[4]),
-                .data_in_10(window_flat[5]), .data_in_11(window_flat[6]), .data_in_12(window_flat[7]), 
-                .data_in_13(window_flat[8]), .data_in_14(window_flat[9]),
-                .data_in_20(window_flat[10]), .data_in_21(window_flat[11]), .data_in_22(window_flat[12]), 
-                .data_in_23(window_flat[13]), .data_in_24(window_flat[14]),
-                .data_in_30(window_flat[15]), .data_in_31(window_flat[16]), .data_in_32(window_flat[17]), 
-                .data_in_33(window_flat[18]), .data_in_34(window_flat[19]),
-                .data_in_40(window_flat[20]), .data_in_41(window_flat[21]), .data_in_42(window_flat[22]), 
-                .data_in_43(window_flat[23]), .data_in_44(window_flat[24]),
-
-                .weight_00(weight[gf][0]), .weight_01(weight[gf][1]), .weight_02(weight[gf][2]), 
-                .weight_03(weight[gf][3]), .weight_04(weight[gf][4]),
-                .weight_10(weight[gf][5]), .weight_11(weight[gf][6]), .weight_12(weight[gf][7]), 
-                .weight_13(weight[gf][8]), .weight_14(weight[gf][9]),
-                .weight_20(weight[gf][10]), .weight_21(weight[gf][11]), .weight_22(weight[gf][12]), 
-                .weight_23(weight[gf][13]), .weight_24(weight[gf][14]),
-                .weight_30(weight[gf][15]), .weight_31(weight[gf][16]), .weight_32(weight[gf][17]), 
-                .weight_33(weight[gf][18]), .weight_34(weight[gf][19]),
-                .weight_40(weight[gf][20]), .weight_41(weight[gf][21]), .weight_42(weight[gf][22]), 
-                .weight_43(weight[gf][23]), .weight_44(weight[gf][24]),
-
-                .bias(bias[gf]),
-
-                .valid_out(valid_conv[gf]),
+                .done(valid_conv[gf]),
                 .data_out(conv_out[gf]),
                 .raw_sum()
             );
@@ -229,6 +227,9 @@ module conv_layer_1 #(
     
     always @(posedge clk) begin
         if (rst) begin
+            serial_busy <= 1'b0;
+            serial_busy_d <= 1'b0;
+            ser_step <= 6'd0;
             x_count <= 9'd0;
             y_count <= 9'd0;
             window_valid <= 1'b0;
@@ -256,6 +257,16 @@ module conv_layer_1 #(
                 end
             end
         end else begin
+            serial_busy_d <= serial_busy;
+
+            if (serial_busy) begin
+                if (ser_step == 6'd28) begin
+                    serial_busy <= 1'b0;
+                    ser_step <= 6'd0;
+                end else
+                    ser_step <= ser_step + 6'd1;
+            end
+
             if (valid_out) begin
                 if (x_out == OUT_WIDTH - 1) begin
                     x_out <= 9'd0;
@@ -279,10 +290,20 @@ module conv_layer_1 #(
                 data_out_5 <= relu_out[5];
             end
             
-            // Process input data and update window
+            // Line buffer must advance on every input pixel; cnn_top may assert valid_in
+            // while serial_busy (same-cycle overlap). Window + serial start only when idle.
             if (valid_in) begin
                 line_buffer[y_in % KERNEL_SIZE][x_in] <= data_in;
 
+                if (x_in == IMG_WIDTH - 1) begin
+                    y_count <= y_count + 9'd1;
+                    x_count <= 9'd0;
+                end else begin
+                    x_count <= x_count + 9'd1;
+                end
+            end
+
+            if (valid_in && !serial_busy) begin
                 if (y_in >= KERNEL_SIZE - 1 && x_in >= KERNEL_SIZE - 1) begin
                     for (ii = 0; ii < KERNEL_SIZE; ii = ii + 1) begin
                         for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
@@ -293,15 +314,10 @@ module conv_layer_1 #(
                         end
                     end
                     window_valid <= 1'b1;
+                    serial_busy <= 1'b1;
+                    ser_step <= 6'd0;
                 end else begin
                     window_valid <= 1'b0;
-                end
-
-                if (x_in == IMG_WIDTH - 1) begin
-                    y_count <= y_count + 9'd1;
-                    x_count <= 9'd0;
-                end else begin
-                    x_count <= x_count + 9'd1;
                 end
             end else begin
                 window_valid <= 1'b0;

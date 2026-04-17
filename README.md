@@ -49,8 +49,7 @@ cnn-fpga/
 - **cnn_top**: Top level state machine coordinating data flow through all layers (conv→relu→pool→flatten→fc), managing layer transitions and pipeline synchronization
 - **conv_layer_1**: First convolutional layer implementing 6 parallel 5×5 filters, line buffering for 28×28 input, weight loading from BRAM, and ReLU activation
 - **conv_layer_2**: Second convolutional layer implementing 16 parallel 5×5 filters, full-precision multi-channel accumulation across 6 input channels, weight loading from BRAM, and ReLU activation
-- **conv_5x5**: Core 5×5 convolution MAC engine performing 25 parallel multiplications using optimized 8-bit multipliers, accumulation in 24-bit precision, bias addition, and Q1.7 scaling with saturation
-- **mult_8x8_signed**: Optimized 8-bit signed multiplier using tree structured partial products for Q1.7 arithmetic
+- **conv_5x5**: Core 5×5 convolution MAC engine performing 25 serial multiply-accumulates, accumulation in 24-bit precision, bias addition, and Q1.7 scaling with saturation
 - **relu**: ReLU activation function implementing max(0, x) for signed 8-bit Q1.7 values
 - **pool_layer_1**: First pooling layer processing 6 channels of 24×24 feature maps with line buffering, producing 6×12×12 output
 - **pool_layer_2**: Second pooling layer processing 16 channels of 8×8 feature maps with line buffering, producing 16×4×4 output
@@ -60,6 +59,18 @@ cnn-fpga/
 - **fc_layer_2**: Second fully connected layer performing matrix-vector multiplication (120→84) with 12 parallel neurons (7 batches), BRAM weight/bias reads, and ReLU activation
 - **fc_layer_3**: Output layer performing matrix-vector multiplication (84→10) with a 10 parallel neurons (1 batch) for digit classification, BRAM weight/bias reads, no activation
 - **weight_loader**: Centralized module routing weight and bias requests to BRAM memory modules based on layer selection
+
+### Resource usage (synthesis estimate)
+
+| Resource | Value | Notes |
+|----------|------:|--------|
+| Generic logic cells | ~759,000 | Sum of techmapped primitives across hierarchy |
+| Inferred memory instances | 83 | Includes weight ROM tables, line buffers, `cnn_top` image buffer, etc. |
+| Inferred memory bits | ~3.58×10⁶ | Total width×depth across memories |
+| BRAM equivalent (18 Kib blocks) | ~194 | rough Xilinx-style BRAM18 sizing |
+| BRAM equivalent (36 Kib blocks) | ~97 | rough BRAM36-style sizing |
+| Signed 8-bit MAC datapaths | 134 | 6 (conv1) + 96 (conv2) + 10 + 12 + 10 (FC layers)|
+| Peak concurrent MACs | 96 | Largest array: `conv_layer_2` while active |
 
 
 ### Weight Management
@@ -86,7 +97,7 @@ iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/
 ### Individual module tests
 ```bash
 # conv_5x5
-iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v rtl/cnn/mult_8x8_signed.v && vvp sim/cnn/tb_conv_5x5.vvp
+iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v && vvp sim/cnn/tb_conv_5x5.vvp
 
 # conv_layer_1
 iverilog -g2012 -o sim/cnn/tb_conv_layer_1.vvp sim/cnn/tb_conv_layer_1.v rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_conv_layer_1.vvp

@@ -19,7 +19,7 @@ jobs:
 
       - name: conv_5x5
         run: |
-          iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v rtl/cnn/mult_8x8_signed.v
+          iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v
           vvp sim/cnn/tb_conv_5x5.vvp | tee test_output.log
           ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\|ERROR'
 
