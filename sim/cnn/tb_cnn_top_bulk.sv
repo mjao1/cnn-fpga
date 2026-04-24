@@ -67,24 +67,25 @@ module tb_cnn_top_bulk;
             pixel_data = 0;
             pixel_valid = 0;
             pixel_addr = 0;
-            #(CLK_PERIOD*10);
+            repeat (20) @(posedge clk);
             rst = 0;
-            #(CLK_PERIOD*5);
+            @(posedge clk); #1;
+            @(posedge clk); #1;
             
             start = 1;
-            #(CLK_PERIOD);
+            @(posedge clk); #1;
             start = 0;
             
             for (integer i = 0; i < NUM_PIXELS; i = i + 1) begin
                 pixel_valid = 1;
                 pixel_addr = i;
                 pixel_data = test_image[i];
-                #(CLK_PERIOD);
+                @(posedge clk); #1;
             end
             pixel_valid = 0;
             
             wait(done);
-            #(CLK_PERIOD*5);
+            @(posedge clk); #1;
         end
     endtask
     

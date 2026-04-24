@@ -58,7 +58,7 @@ def export_quantized_image(image):
     quantized = np.clip(np.round(image * 127), 0, 127).astype(np.int8)
     
     # Export as .mem file for Verilog $readmemh
-    mem_filename = 'sim/cnn/input_image.mem'
+    mem_filename = 'sim/cnn/test_images/input_image.mem'
     with open(mem_filename, 'w') as f:
         for row in quantized:
             for pixel in row:

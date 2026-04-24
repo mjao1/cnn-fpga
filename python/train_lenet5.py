@@ -24,10 +24,15 @@ FIXED_SCALE = float(2 ** FRAC_BITS)
 USE_UNIFORM_SCALE = True
 
 # FC layer scaling factor to prevent output saturation
-FC_SCALE_FACTOR = 1.76
+FC_SCALE_FACTOR = 2.0
 
 def create_lenet5_model():
-    """Create the LeNet-5 model architecture."""
+    """Create the deployment LeNet-5 model architecture.
+    
+    Kept dropout-free so quantize/export code can index layers 0, 2, 5, 6, 7
+    directly without needing to account for regularization layers only
+    present at train time.
+    """
     model = models.Sequential()
     
     model.add(layers.Conv2D(6, kernel_size=(5, 5), activation='relu', 
@@ -53,6 +58,30 @@ def create_lenet5_model():
         metrics=['accuracy']
     )
     
+    return model
+
+
+def create_training_model():
+    """Create the training LeNet-5 model with 10% dropout before FC1.
+    (this is only used during training, weights are transferred into a
+    dropout-free deployment model before quantization so layer indices stay
+    consistent with test_lenet5.py / export_weights_to_mem)
+    """
+    model = models.Sequential()
+    model.add(layers.Conv2D(6, kernel_size=(5, 5), activation='relu',
+                            input_shape=(28, 28, 1), padding='valid'))
+    model.add(layers.MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+    model.add(layers.Conv2D(16, kernel_size=(5, 5), activation='relu',
+                            padding='valid'))
+    model.add(layers.MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+    model.add(layers.Flatten())
+    model.add(layers.Dropout(0.1))
+    model.add(layers.Dense(120, activation='relu'))
+    model.add(layers.Dense(84, activation='relu'))
+    model.add(layers.Dense(10, activation='softmax'))
+    model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy'])
     return model
 
 def quantize_weights_fpga(weights, frac_bits=FRAC_BITS, use_uniform=USE_UNIFORM_SCALE):
@@ -295,34 +324,57 @@ def visualize_model(model, history):
     plt.savefig('python/plots/predictions.png')
 
 def main():
-    """Main function to train the model and export weights."""
+    """Train the LeNet-5 model (with dropout + LR schedule + early stopping),
+    transfer the weights into the deployment (dropout-free) model, then
+    export Q1.7 .mem files."""
     print("Loading MNIST dataset...")
     (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
     
     x_train = x_train.reshape(-1, 28, 28, 1).astype('float32') / 255.0
     x_test = x_test.reshape(-1, 28, 28, 1).astype('float32') / 255.0
     
-    y_train = tf.keras.utils.to_categorical(y_train, 10)
-    y_test = tf.keras.utils.to_categorical(y_test, 10)
+    y_train_1h = tf.keras.utils.to_categorical(y_train, 10)
+    y_test_1h = tf.keras.utils.to_categorical(y_test, 10)
     
-    print("Creating LeNet-5 model...")
-    model = create_lenet5_model()
+    print("Creating training LeNet-5 model (with dropout)...")
+    train_model = create_training_model()
+    train_model.summary()
     
-    model.summary()
+    callbacks = [
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_accuracy', factor=0.5, patience=2,
+            min_lr=1e-5, verbose=1),
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_accuracy', patience=6,
+            restore_best_weights=True, verbose=1),
+    ]
     
     print("Training the model...")
-    history = model.fit(
-        x_train, y_train,
+    history = train_model.fit(
+        x_train, y_train_1h,
         batch_size=128,
-        epochs=10,
-        validation_data=(x_test, y_test),
-        verbose=1
+        epochs=25,
+        validation_data=(x_test, y_test_1h),
+        callbacks=callbacks,
+        verbose=2,
     )
     
-    test_loss, test_accuracy = model.evaluate(x_test, y_test, verbose=0)
-    print(f"Test accuracy: {test_accuracy:.4f}")
+    # Transfer weights into the dropout-free deployment model so downstream
+    # quantization/export logic can index layers 0, 2, 5, 6, 7 as usual.
+    # Training model indices (with dropout): 0 conv1, 2 conv2, 6 fc1, 7 fc2, 8 fc3
+    # Deploy model indices (no dropout): conv1, 2 conv2, 5 fc1, 6 fc2, 7 fc3
+    model = create_lenet5_model()
+    model.build(input_shape=(None, 28, 28, 1))
+    model.layers[0].set_weights(train_model.layers[0].get_weights())
+    model.layers[2].set_weights(train_model.layers[2].get_weights())
+    model.layers[5].set_weights(train_model.layers[6].get_weights())
+    model.layers[6].set_weights(train_model.layers[7].get_weights())
+    model.layers[7].set_weights(train_model.layers[8].get_weights())
     
-    # Save model weights for use in test_lenet5.py
+    test_loss, test_accuracy = model.evaluate(x_test, y_test_1h, verbose=0)
+    print(f"Test accuracy after transfer: {test_accuracy:.4f}")
+    
+    # Save weights (just the deployment model; 10-epoch training model dropped)
     model_weights_path = 'python/lenet5.weights.h5'
     print(f"Saving model weights to {model_weights_path}...")
     model.save_weights(model_weights_path)
