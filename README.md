@@ -60,18 +60,26 @@ cnn-fpga/
 - **fc_layer_3**: Output layer performing matrix-vector multiplication (84→10) with a 10 parallel neurons (1 batch) for digit classification, BRAM weight/bias reads, no activation
 - **weight_loader**: Centralized module routing weight and bias requests to BRAM memory modules based on layer selection
 
-### Resource usage (synthesis estimate)
+### Resource utilization (xc7 synth_xilinx)
 
-| Resource | Value | Notes |
-|----------|------:|--------|
-| Generic logic cells | ~759,000 | Sum of techmapped primitives across hierarchy |
-| Inferred memory instances | 83 | Includes weight ROM tables, line buffers, `cnn_top` image buffer, etc. |
-| Inferred memory bits | ~3.58×10⁶ | Total width×depth across memories |
-| BRAM equivalent (18 Kib blocks) | ~194 | rough Xilinx-style BRAM18 sizing |
-| BRAM equivalent (36 Kib blocks) | ~97 | rough BRAM36-style sizing |
-| Signed 8-bit MAC datapaths | 134 | 6 (conv1) + 96 (conv2) + 10 + 12 + 10 (FC layers)|
-| Peak concurrent MACs | 96 | Largest array: `conv_layer_2` while active |
 
+| Resource                  | Used                               | xc7a100t budget    | Utilization    |
+| ------------------------- | ---------------------------------- | ------------------ | -------------- |
+| LUT6                      | 783,103                            | 63,400             | 1235 %         |
+| LUT2 / LUT3 / LUT4 / LUT5 | 49,088 / 139,515 / 24,511 / 51,898 | (mapped onto LUT6) | —              |
+| INV / LUT1                | 14,419 / 487                       | (mapped onto LUT6) | —              |
+| FDRE (flip-flops)         | 77,143                             | 126,800            | 60.8 %         |
+| CARRY4                    | 11,783                             | 15,850             | 74.3 %         |
+| MUXF7 / MUXF8             | 16,729 / 1,569                     | 31,700 / 15,850    | 52.8 % / 9.9 % |
+| DSP48E1                   | 150                                | 240                | 62.5 %         |
+| RAMB36E1                  | 71                                 | 135                | 52.6 %         |
+| RAMB18E1                  | 60                                 | 270                | 22.2 %         |
+| BUFG                      | 1                                  | 32                 | 3.1 %          |
+
+
+For the `xc7a100tcsg324-1`, LUT6 count overflows by an order of magnitude, though synth_xilinx uses pessimistic estimates. The dominant cost is the 96 MAC parallel array in `conv_layer_2` together with its weight routing mux trees and the FC accumulators that get inferred as register files instead of BRAM. To fit on xc7a100t, conv2 parallelism would need to be reduced, keep the MUXF7/F8 packing but rewrite the weight ROM addressing so more of the 6×16×25 conv2 weights stay in `RAMB18E1`, and/or move FC accumulators into `RAMB18E1` instead of distributed registers.
+
+However, the design does fit on a larger 7-series part or UltraScale+ device.
 
 ### Weight Management
 - Weights stored in BRAM via memory wrapper modules
@@ -135,7 +143,7 @@ iverilog -g2012 -o sim/cnn/tb_fc_layers.vvp sim/cnn/tb_fc_layers.v rtl/cnn/*.v r
 iverilog -g2012 -o sim/cnn/tb_cnn_top_bulk.vvp sim/cnn/tb_cnn_top_bulk.sv rtl/cnn/*.v rtl/cnn/*.sv && vvp sim/cnn/tb_cnn_top_bulk.vvp
 ```
 - Tests the CNN on 1000 MNIST test set images (100 per digit) and measures correctness
-- Accuracy is limited by the trained model quality and the quantization error introduced by Q1.7 weights/activations + the `FC_SCALE_FACTOR` used to keep FC accumulators from saturating.
+- Accuracy is limited by the trained model quality and the quantization error introduced by Q1.7 weights/activations + the `FC_SCALE_FACTOR` used to keep FC accumulators from saturating
 
 ```bash
 === Accuracy Results ===
@@ -154,14 +162,19 @@ Digit 9: 99/100 correct (99%)
 Total Accuracy: 982/1000 correct (98.20%)
 ```
 
-
 ## Synthesis
+
+### Generic synthesis
 
 ```bash
 yosys synth.ys
 ```
-Output: `synth_cnn_top.v`
 
+### Vendor targeted synthesis (xc7)
+
+```bash
+yosys synth_xc7.ys
+```
 
 ## Generating Test Images
 

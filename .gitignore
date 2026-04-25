@@ -3,3 +3,7 @@ __pycache__/
 venv/
 *.vvp
 synth_cnn_top.v
+synth_cnn_top_xc7a100t.v
+synth_xc7.log
+synth_xc7_premap.txt
+synth_xc7_final.txt
