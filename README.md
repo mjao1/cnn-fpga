@@ -1,36 +1,34 @@
 # cnn-fpga
-## Project Overview
-A LeNet-5 Convolutional Neural Network (CNN) accelerator implemented in synthesizable RTL Verilog/SystemVerilog for real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for FPGA deployment using uniform Q1.7 fixed-point quantization.
 
-<p align="center">
-  <img src="assets/lenet5-diagram.png" width="100%" alt="LeNet-5 Architecture">
-</p>
-<p align="center">
-  <img src="./python/plots/predictions.png" width="100%" alt="MNIST Recognition">
-</p>
+## Project Overview
+
+A LeNet-5 Convolutional Neural Network (CNN) accelerator implemented in synthesizable RTL Verilog/SystemVerilog for real-time handwritten digit recognition. The CNN is trained on the MNIST dataset and optimized for FPGA deployment using uniform Q1.7 fixed-point quantization.
 
 ## Architecture Overview
 
 The implementation follows the LeNet-5 architecture:
 
 ### Input Layer
+
 - 28×28 grayscale image input (1 channel)
 - Q1.7 fixed-point format (8-bit signed, 7 fractional bits)
 
 ### Convolutional Layers
+
 - **Conv1**: 1×28×28 → 6×24×24 (6 filters, 5×5 kernel, stride 1, no padding)
 - **Pool1**: 6×24×24 → 6×12×12 (2×2 max pooling, stride 2)
 - **Conv2**: 6×12×12 → 16×8×8 (16 filters, 5×5 kernel, stride 1, no padding)
 - **Pool2**: 16×8×8 → 16×4×4 (2×2 max pooling, stride 2)
 
 ### Fully Connected Layers
+
 - **Flatten**: 16×4×4 = 256 neurons
 - **FC1**: 256 → 120 neurons
 - **FC2**: 120 → 84 neurons
 - **FC3**: 84 → 10 neurons (digit classification)
 
-
 ## Project Structure
+
 ```
 cnn-fpga/
 ├── rtl/cnn/                # CNN RTL modules (Verilog/SystemVerilog)
@@ -42,10 +40,10 @@ cnn-fpga/
 └── python/                 # Model training, quantization, and test generation
 ```
 
-
 ## RTL Implementation
 
 ### CNN Components
+
 - **cnn_top**: Top level state machine coordinating data flow through all layers (conv→relu→pool→flatten→fc), managing layer transitions and pipeline synchronization
 - **conv_layer_1**: First convolutional layer implementing 6 parallel 5×5 filters, line buffering for 28×28 input, weight loading from BRAM, and ReLU activation
 - **conv_layer_2**: Second convolutional layer implementing 16 parallel 5×5 filters, full-precision multi-channel accumulation across 6 input channels, weight loading from BRAM, and ReLU activation
@@ -60,26 +58,17 @@ cnn-fpga/
 - **fc_layer_3**: Output layer performing matrix-vector multiplication (84→10) with a 10 parallel neurons (1 batch) for digit classification, BRAM weight/bias reads, no activation
 - **weight_loader**: Centralized module routing weight and bias requests to BRAM memory modules based on layer selection
 
-### Resource utilization (xc7 synth_xilinx)
+### FPGA Resource Utilization (`xc7a100tcsg324-1`, Vivado post-synthesis)
 
-
-| Resource                  | Used                               | xc7a100t budget    | Utilization    |
-| ------------------------- | ---------------------------------- | ------------------ | -------------- |
-| LUT6                      | 783,103                            | 63,400             | 1235 %         |
-| LUT2 / LUT3 / LUT4 / LUT5 | 49,088 / 139,515 / 24,511 / 51,898 | (mapped onto LUT6) | —              |
-| INV / LUT1                | 14,419 / 487                       | (mapped onto LUT6) | —              |
-| FDRE (flip-flops)         | 77,143                             | 126,800            | 60.8 %         |
-| CARRY4                    | 11,783                             | 15,850             | 74.3 %         |
-| MUXF7 / MUXF8             | 16,729 / 1,569                     | 31,700 / 15,850    | 52.8 % / 9.9 % |
-| DSP48E1                   | 150                                | 240                | 62.5 %         |
-| RAMB36E1                  | 71                                 | 135                | 52.6 %         |
-| RAMB18E1                  | 60                                 | 270                | 22.2 %         |
-| BUFG                      | 1                                  | 32                 | 3.1 %          |
-
-
-For the `xc7a100tcsg324-1`, LUT6 count overflows by an order of magnitude, though synth_xilinx uses pessimistic estimates. The dominant cost is the 96 MAC parallel array in `conv_layer_2` together with its weight routing mux trees and the FC accumulators that get inferred as register files instead of BRAM. To fit on xc7a100t, conv2 parallelism would need to be reduced, keep the MUXF7/F8 packing but rewrite the weight ROM addressing so more of the 6×16×25 conv2 weights stay in `RAMB18E1`, and/or move FC accumulators into `RAMB18E1` instead of distributed registers.
-
-However, the design does fit on a larger 7-series part or UltraScale+ device.
+| Resource | Estimation | Available | Utilization % |
+| -------- | ---------: | --------: | ------------: |
+| LUT      |      51655 |     63400 |         81.47 |
+| LUTRAM   |        660 |     19000 |          3.47 |
+| FF       |      61274 |    126800 |         48.32 |
+| BRAM     |        124 |       135 |         91.85 |
+| DSP      |         12 |       240 |          5.00 |
+| IO       |         35 |       210 |         16.67 |
+| BUFG     |          1 |        32 |          3.13 |
 
 ### Weight Management
 - Weights stored in BRAM via memory wrapper modules
@@ -95,7 +84,8 @@ iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/
 ```
 - Runs the complete LeNet-5 pipeline on an MNIST test image and outputs the predicted digit class
 
-### Note: 
+### Note:
+
 - To test a different image, edit line 127 in `tb_cnn_top.sv` to change the input image path:
   ```systemverilog
   $readmemh("sim/cnn/test_images/test_image_X.mem", test_image);  // Test digit X (0-9)
@@ -162,7 +152,7 @@ Digit 9: 99/100 correct (99%)
 Total Accuracy: 982/1000 correct (98.20%)
 ```
 
-## Synthesis
+## Yosys Synthesis
 
 ### Generic synthesis
 
@@ -170,7 +160,7 @@ Total Accuracy: 982/1000 correct (98.20%)
 yosys synth.ys
 ```
 
-### Vendor targeted synthesis (xc7)
+### Vendor targeted synthesis
 
 ```bash
 yosys synth_xc7.ys
