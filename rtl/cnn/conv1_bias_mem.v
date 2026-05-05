@@ -1,4 +1,7 @@
 // Memory wrapper for Conv1 layer biases
+`ifndef WEIGHTS_DIR
+`define WEIGHTS_DIR "weights_mem/"
+`endif
 module conv1_bias_mem #(
     parameter DATA_WIDTH = 8,
     parameter NUM_FILTERS = 6
@@ -17,7 +20,7 @@ module conv1_bias_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("conv1_biases.mem")
+        .MEM_INIT_FILE({`WEIGHTS_DIR, "conv1_biases.mem"})
     ) bias_mem (
         .clk(clk),
         .rst(rst),

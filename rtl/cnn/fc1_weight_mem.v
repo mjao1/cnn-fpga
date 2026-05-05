@@ -1,4 +1,7 @@
 // Memory wrapper for FC1 layer weights
+`ifndef WEIGHTS_DIR
+`define WEIGHTS_DIR "weights_mem/"
+`endif
 module fc1_weight_mem #(
     parameter DATA_WIDTH = 8,
     parameter IN_FEATURES = 256,
@@ -23,7 +26,7 @@ module fc1_weight_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("fc1_weights.mem")
+        .MEM_INIT_FILE({`WEIGHTS_DIR, "fc1_weights.mem"})
     ) weight_mem (
         .clk(clk),
         .rst(rst),

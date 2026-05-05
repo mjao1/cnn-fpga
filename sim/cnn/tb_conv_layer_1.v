@@ -10,6 +10,8 @@ module tb_conv_layer_1;
     parameter DATA_WIDTH = 8;
     parameter FRAC_BITS = 7;
     parameter CLK_PERIOD = 10;
+    localparam EXPECTED_OUTPUTS = OUT_WIDTH * OUT_HEIGHT;
+    localparam MAX_WAIT_CYCLES = 200000;
     
     reg clk;
     reg rst;
@@ -27,6 +29,7 @@ module tb_conv_layer_1;
     wire [DATA_WIDTH-1:0] data_out_5;
     wire [8:0] x_out;
     wire [8:0] y_out;
+    wire busy;
     
     wire [DATA_WIDTH-1:0] data_out_array [0:NUM_FILTERS-1];
     assign data_out_array[0] = data_out_0;
@@ -42,6 +45,7 @@ module tb_conv_layer_1;
     reg [DATA_WIDTH-1:0] expected_flat [0:NUM_FILTERS*OUT_HEIGHT*OUT_WIDTH-1];
     
     integer i, j, k;
+    integer wait_cycles;
     integer output_count;
     integer match_count;
     integer mismatch_count;
@@ -74,7 +78,8 @@ module tb_conv_layer_1;
         .data_out_4(data_out_4),
         .data_out_5(data_out_5),
         .x_out(x_out),
-        .y_out(y_out)
+        .y_out(y_out),
+        .busy(busy)
     );
     
     assign state_debug = uut.state;
@@ -133,17 +138,32 @@ module tb_conv_layer_1;
                 y_in = i;
                 @(posedge clk);
                 #1;
+                while (busy) begin
+                    valid_in = 0;
+                    @(posedge clk);
+                    #1;
+                end
             end
         end
         
         valid_in = 0;
         
-        // Wait for pipeline to flush
-        repeat (100) @(posedge clk);
+        // Wait until all expected output pixels are observed
+        wait_cycles = 0;
+        while ((output_count < EXPECTED_OUTPUTS) && (wait_cycles < MAX_WAIT_CYCLES)) begin
+            @(posedge clk);
+            wait_cycles = wait_cycles + 1;
+        end
         
         $display("\n=== Test Summary ===");
         $display("Total outputs: %0d", output_count);
         $display("Matches: %0d, Mismatches: %0d", match_count, mismatch_count);
+        if (output_count != EXPECTED_OUTPUTS) begin
+            $fatal(1, "Expected %0d outputs, got %0d", EXPECTED_OUTPUTS, output_count);
+        end
+        if (mismatch_count != 0) begin
+            $fatal(1, "Found %0d mismatches", mismatch_count);
+        end
         $finish;
     end
     

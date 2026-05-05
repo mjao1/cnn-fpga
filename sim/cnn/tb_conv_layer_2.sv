@@ -26,6 +26,8 @@ module tb_conv_layer_2;
     wire [(DATA_WIDTH*OUT_CHANNELS)-1:0] data_out;
     wire [7:0] x_out;
     wire [7:0] y_out;
+    wire ready;
+    wire busy;
     
     // Input data storage
     reg [DATA_WIDTH-1:0] input_flat [0:INPUT_SIZE-1];
@@ -56,6 +58,9 @@ module tb_conv_layer_2;
     
     integer i, j, ic, oc;
     integer match_count, mismatch_count;
+    integer wait_cycles;
+    localparam EXPECTED_OUTPUTS = OUT_WIDTH * OUT_HEIGHT;
+    localparam MAX_WAIT_CYCLES = 200000;
     
     // 2 phase loading: each weight/bias takes 2 cycles (ADDR, DATA)
     // Weights per filter: 6 * 25 = 150 weights, 300 cycles
@@ -83,7 +88,9 @@ module tb_conv_layer_2;
         .valid_out(valid_out),
         .data_out(data_out),
         .x_out(x_out),
-        .y_out(y_out)
+        .y_out(y_out),
+        .ready(ready),
+        .busy(busy)
     );
     
     initial begin
@@ -115,7 +122,7 @@ module tb_conv_layer_2;
         #100;
         rst = 0;
         
-        #(CLK_PERIOD * WEIGHT_LOAD_CYCLES);
+        wait (ready);
         
         $display("Weight loading complete, starting inference...");
         
@@ -128,21 +135,36 @@ module tb_conv_layer_2;
                 for (ic = 0; ic < IN_CHANNELS; ic = ic + 1) begin
                     data_in_channel[ic] = input_flat[ic * (MAP_WIDTH * MAP_HEIGHT) + i * MAP_WIDTH + j];
                 end
-                
+
+                while (busy) begin
+                    valid_in = 0;
+                    @(posedge clk);
+                end
                 valid_in = 1;
                 @(posedge clk);
                 #1;
+                valid_in = 0;
             end
         end
         
         valid_in = 0;
         
-        // Wait for pipeline to flush
-        repeat (100) @(posedge clk);
+        // Wait until all expected output pixels are observed
+        wait_cycles = 0;
+        while ((output_count < EXPECTED_OUTPUTS) && (wait_cycles < MAX_WAIT_CYCLES)) begin
+            @(posedge clk);
+            wait_cycles = wait_cycles + 1;
+        end
         
         $display("\n=== Test Summary ===");
-        $display("Total outputs: %0d", match_count + mismatch_count);
+        $display("Total outputs: %0d", output_count);
         $display("Matches: %0d, Mismatches: %0d", match_count, mismatch_count);
+        if (output_count != EXPECTED_OUTPUTS) begin
+            $fatal(1, "Expected %0d outputs, got %0d", EXPECTED_OUTPUTS, output_count);
+        end
+        if (mismatch_count != 0) begin
+            $fatal(1, "Found %0d mismatches", mismatch_count);
+        end
         $finish;
     end
     
@@ -151,14 +173,20 @@ module tb_conv_layer_2;
     reg [DATA_WIDTH-1:0] expected_val;
     reg [DATA_WIDTH-1:0] actual_val;
     integer exp_idx;
+    reg [7:0] prev_x_out;
+    reg [7:0] prev_y_out;
+    reg prev_xy_valid;
     
     initial begin
         output_count = 0;
+        prev_x_out = 0;
+        prev_y_out = 0;
+        prev_xy_valid = 0;
         @(negedge rst);
         
         forever begin
             @(posedge clk);
-            if (valid_out) begin
+            if (valid_out && (!prev_xy_valid || (x_out != prev_x_out) || (y_out != prev_y_out))) begin
                 for (oc = 0; oc < OUT_CHANNELS; oc = oc + 1) begin
                     exp_idx = oc * (OUT_WIDTH * OUT_HEIGHT) + y_out * OUT_WIDTH + x_out;
                     expected_val = expected_flat[exp_idx];
@@ -174,6 +202,9 @@ module tb_conv_layer_2;
                 end
                 
                 output_count = output_count + 1;
+                prev_x_out = x_out;
+                prev_y_out = y_out;
+                prev_xy_valid = 1;
             end
         end
     end

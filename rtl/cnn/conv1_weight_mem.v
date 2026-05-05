@@ -1,4 +1,7 @@
 // Memory wrapper for Conv1 layer weights
+`ifndef WEIGHTS_DIR
+`define WEIGHTS_DIR "weights_mem/"
+`endif
 module conv1_weight_mem #(
     parameter DATA_WIDTH = 8,
     parameter NUM_FILTERS = 6,
@@ -29,7 +32,7 @@ module conv1_weight_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("conv1_weights.mem")
+        .MEM_INIT_FILE({`WEIGHTS_DIR, "conv1_weights.mem"})
     ) weight_mem (
         .clk(clk),
         .rst(rst),
