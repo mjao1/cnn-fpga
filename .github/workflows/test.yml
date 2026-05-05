@@ -17,6 +17,9 @@ jobs:
       - name: install iverilog
         run: sudo apt-get update && sudo apt-get install -y iverilog
 
+      - name: stage weight memories for simulation
+        run: cp rtl/cnn/*.mem .
+
       - name: conv_5x5
         run: |
           iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v
