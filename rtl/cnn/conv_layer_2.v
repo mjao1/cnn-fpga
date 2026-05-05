@@ -40,7 +40,6 @@ module conv_layer_2 #(
     reg serial_busy;
     reg serial_busy_d;
     reg [5:0] ser_step;
-    reg signed [DATA_WIDTH-1:0] latch_win [0:IN_CHANNELS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
 
     assign busy = serial_busy;
 
@@ -206,7 +205,7 @@ module conv_layer_2 #(
     genvar ldci;
     generate
         for (ldci = 0; ldci < IN_CHANNELS; ldci = ldci + 1) begin : din_mux
-            assign conv_din[ldci] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? latch_win[ldci][ser_step - 6'd1] : 8'sd0;
+            assign conv_din[ldci] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? window_flat[ldci][ser_step - 6'd1] : 8'sd0;
         end
     endgenerate
 
@@ -407,16 +406,6 @@ module conv_layer_2 #(
                     end
                     window_valid <= 1'b1;
                     if (state == RUNNING) begin
-                        for (ii = 0; ii < IN_CHANNELS; ii = ii + 1) begin
-                            for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
-                                for (kk = 0; kk < KERNEL_SIZE; kk = kk + 1) begin
-                                    if (jj == KERNEL_SIZE-1 && kk == KERNEL_SIZE-1)
-                                        latch_win[ii][jj * KERNEL_SIZE + kk] <= data_in_channel[ii];
-                                    else
-                                        latch_win[ii][jj * KERNEL_SIZE + kk] <= line_buffer[ii][(y_in - (KERNEL_SIZE-1) + jj) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1) + kk];
-                                end
-                            end
-                        end
                         serial_busy <= 1'b1;
                         ser_step <= 6'd0;
                     end
