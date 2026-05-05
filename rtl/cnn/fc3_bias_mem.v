@@ -17,7 +17,7 @@ module fc3_bias_mem #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DEPTH(DEPTH),
-        .MEM_INIT_FILE("weights_mem/fc3_biases.mem")
+        .MEM_INIT_FILE("fc3_biases.mem")
     ) bias_mem (
         .clk(clk),
         .rst(rst),
