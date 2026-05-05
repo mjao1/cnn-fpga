@@ -1,6 +1,10 @@
 // Memory wrapper for Conv1 layer biases
 `ifndef WEIGHTS_DIR
+`ifdef __ICARUS__
 `define WEIGHTS_DIR "weights_mem/"
+`else
+`define WEIGHTS_DIR ""
+`endif
 `endif
 module conv1_bias_mem #(
     parameter DATA_WIDTH = 8,

@@ -1,6 +1,10 @@
 // Memory wrapper for FC3 (output) layer weights
 `ifndef WEIGHTS_DIR
+`ifdef __ICARUS__
 `define WEIGHTS_DIR "weights_mem/"
+`else
+`define WEIGHTS_DIR ""
+`endif
 `endif
 module fc3_weight_mem #(
     parameter DATA_WIDTH = 8,
