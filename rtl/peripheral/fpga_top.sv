@@ -15,6 +15,17 @@ module fpga_top #(
     output logic [3:0] an,
     output logic [3:0] led
 );
+    wire clk_sys;
+    wire rst_buf;
+    IBUF clk_ibuf (
+        .I (clk),
+        .O (clk_sys)
+    );
+    IBUF rst_ibuf (
+        .I (rst),
+        .O (rst_buf)
+    );
+
     typedef enum logic [1:0] {
         IDLE         = 2'd0,
         LOAD         = 2'd1,
@@ -44,8 +55,8 @@ module fpga_top #(
     // Start button edge detector
     logic start_prev = 1'b0;
     wire start_pulse = start & ~start_prev;
-    always_ff @(posedge clk) begin
-        if (rst) 
+    always_ff @(posedge clk_sys) begin
+        if (rst_buf) 
             start_prev <= 1'b0;
         else     
             start_prev <= start;
@@ -96,8 +107,8 @@ module fpga_top #(
         .IMG_HEIGHT(IMG_HEIGHT),
         .DATA_WIDTH(DATA_WIDTH)
     ) cnn (
-        .clk(clk),
-        .rst(rst),
+        .clk(clk_sys),
+        .rst(rst_buf),
         .start(cnn_start),
         .pixel_data(pixel_data),
         .pixel_valid(pixel_valid),
@@ -109,8 +120,8 @@ module fpga_top #(
 
     // 7 seg display modules
     labCnt_clks slowit (
-        .clkin(clk),
-        .greset(rst),
+        .clkin(clk_sys),
+        .greset(rst_buf),
         .clk(clk_out),
         .digsel(digsel),
         .fastclk()
@@ -143,8 +154,8 @@ module fpga_top #(
     );
 
     // Main state machine
-    always_ff @(posedge clk) begin
-        if (rst) begin
+    always_ff @(posedge clk_sys) begin
+        if (rst_buf) begin
             state <= IDLE;
             pixel_count <= 10'd0;
             pixel_valid <= 1'b0;
