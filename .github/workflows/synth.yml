@@ -19,5 +19,6 @@ jobs:
 
       - name: synthesize cnn
         run: |
+          cp weights_mem/*.mem .
           yosys synth.ys
           test -f synth_cnn_top.v
