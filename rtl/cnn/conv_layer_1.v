@@ -31,16 +31,58 @@ module conv_layer_1 #(
     output wire busy
 );
 
+    localparam MEM_F_W = $clog2(NUM_FILTERS);
+    localparam MEM_K_W = $clog2(KERNEL_SIZE);
+
     reg [DATA_WIDTH-1:0] line_buffer [0:KERNEL_SIZE-1][0:IMG_WIDTH-1];
     reg [DATA_WIDTH-1:0] window [0:KERNEL_SIZE-1][0:KERNEL_SIZE-1];
     
     reg signed [DATA_WIDTH-1:0] weight [0:NUM_FILTERS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
     reg signed [DATA_WIDTH-1:0] bias [0:NUM_FILTERS-1];
     
-    reg [8:0] x_count, y_count;
-    reg window_valid;
-
     reg serial_busy;
+    reg [2:0] row_idx_m1;
+    reg [2:0] row_idx_m2;
+    reg [2:0] row_idx_m3;
+    reg [2:0] row_idx_m4;
+
+    reg [2:0] wr_row_idx;
+
+    always @(*) begin
+        case (wr_row_idx)
+            3'd0: begin
+                row_idx_m1 = 3'd4;
+                row_idx_m2 = 3'd3;
+                row_idx_m3 = 3'd2;
+                row_idx_m4 = 3'd1;
+            end
+            3'd1: begin
+                row_idx_m1 = 3'd0;
+                row_idx_m2 = 3'd4;
+                row_idx_m3 = 3'd3;
+                row_idx_m4 = 3'd2;
+            end
+            3'd2: begin
+                row_idx_m1 = 3'd1;
+                row_idx_m2 = 3'd0;
+                row_idx_m3 = 3'd4;
+                row_idx_m4 = 3'd3;
+            end
+            3'd3: begin
+                row_idx_m1 = 3'd2;
+                row_idx_m2 = 3'd1;
+                row_idx_m3 = 3'd0;
+                row_idx_m4 = 3'd4;
+            end
+            default: begin
+                row_idx_m1 = 3'd3;
+                row_idx_m2 = 3'd2;
+                row_idx_m3 = 3'd1;
+                row_idx_m4 = 3'd0;
+            end
+        endcase
+    end
+
     reg serial_busy_d;
     reg [5:0] ser_step;
     assign busy = serial_busy;
@@ -62,8 +104,12 @@ module conv_layer_1 #(
     reg [2:0] state;
     reg [7:0] current_filter;
     reg [7:0] current_kernel;
-    reg load_bias;
-    
+
+    wire [7:0] weight_kernel_row;
+    wire [7:0] weight_kernel_col;
+    assign weight_kernel_row = current_kernel / KERNEL_SIZE;
+    assign weight_kernel_col = current_kernel % KERNEL_SIZE;
+
     wire signed [DATA_WIDTH-1:0] loaded_weight;
     wire signed [DATA_WIDTH-1:0] loaded_bias;
     
@@ -75,10 +121,10 @@ module conv_layer_1 #(
     ) conv1_weights (
         .clk(clk),
         .rst(rst),
-        .filter_idx(current_filter),
-        .in_channel(8'd0),
-        .kernel_row(current_kernel / KERNEL_SIZE),
-        .kernel_col(current_kernel % KERNEL_SIZE),
+        .filter_idx(current_filter[MEM_F_W-1:0]),
+        .in_channel(1'b0),
+        .kernel_row(weight_kernel_row[MEM_K_W-1:0]),
+        .kernel_col(weight_kernel_col[MEM_K_W-1:0]),
         .weight_out(loaded_weight)
     );
 
@@ -88,7 +134,7 @@ module conv_layer_1 #(
     ) conv1_biases (
         .clk(clk),
         .rst(rst),
-        .filter_idx(current_filter),
+        .filter_idx(current_filter[MEM_F_W-1:0]),
         .bias_out(loaded_bias)
     );
     
@@ -99,8 +145,7 @@ module conv_layer_1 #(
             state <= INIT;
             current_filter <= 8'd0;
             current_kernel <= 8'd0;
-            load_bias <= 1'b0;
-            
+
             for (ii = 0; ii < NUM_FILTERS; ii = ii + 1) begin
                 bias[ii] <= 8'd0;
                 for (jj = 0; jj < KERNEL_SIZE*KERNEL_SIZE; jj = jj + 1) begin
@@ -114,7 +159,6 @@ module conv_layer_1 #(
                     state <= LOAD_WEIGHTS_ADDR;
                     current_filter <= 8'd0;
                     current_kernel <= 8'd0;
-                    load_bias <= 1'b0;
                 end
                 
                 LOAD_WEIGHTS_ADDR: begin
@@ -188,6 +232,25 @@ module conv_layer_1 #(
         end
     endgenerate
 
+    // Pipeline mux outputs and start pulse
+    (* max_fanout = 48 *) reg conv_start_q;
+    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_data_in_q;
+    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_weight_in_q [0:NUM_FILTERS-1];
+    integer pi;
+    always @(posedge clk) begin
+        if (rst) begin
+            conv_start_q <= 1'b0;
+            conv_data_in_q <= 8'sd0;
+            for (pi = 0; pi < NUM_FILTERS; pi = pi + 1)
+                conv_weight_in_q[pi] <= 8'sd0;
+        end else begin
+            conv_start_q <= conv_start;
+            conv_data_in_q <= conv_data_in;
+            for (pi = 0; pi < NUM_FILTERS; pi = pi + 1)
+                conv_weight_in_q[pi] <= conv_weight_in[pi];
+        end
+    end
+
     // Instantiate 6 convolution modules for each filter
     generate
         genvar gf;
@@ -197,9 +260,9 @@ module conv_layer_1 #(
             ) conv_inst (
                 .clk(clk),
                 .rst(rst),
-                .start(conv_start),
-                .data_in(conv_data_in),
-                .weight_in(conv_weight_in[gf]),
+                .start(conv_start_q),
+                .data_in(conv_data_in_q),
+                .weight_in(conv_weight_in_q[gf]),
 
                 .done(valid_conv[gf]),
                 .data_out(conv_out[gf]),
@@ -230,9 +293,7 @@ module conv_layer_1 #(
             serial_busy <= 1'b0;
             serial_busy_d <= 1'b0;
             ser_step <= 6'd0;
-            x_count <= 9'd0;
-            y_count <= 9'd0;
-            window_valid <= 1'b0;
+            wr_row_idx <= 3'd0;
             valid_out <= 1'b0;
             
             x_out <= 9'd0;
@@ -245,6 +306,7 @@ module conv_layer_1 #(
             data_out_4 <= 8'd0;
             data_out_5 <= 8'd0;
             
+            // Initialize buffers and filter outputs
             for (ii = 0; ii < KERNEL_SIZE; ii = ii + 1) begin
                 for (jj = 0; jj < IMG_WIDTH; jj = jj + 1) begin
                     line_buffer[ii][jj] <= 8'd0;
@@ -256,6 +318,7 @@ module conv_layer_1 #(
                     window[ii][jj] <= 8'd0;
                 end
             end
+            
         end else begin
             serial_busy_d <= serial_busy;
 
@@ -290,37 +353,49 @@ module conv_layer_1 #(
                 data_out_5 <= relu_out[5];
             end
             
-            // Line buffer must advance on every input pixel; cnn_top may assert valid_in
-            // while serial_busy (same-cycle overlap). Window + serial start only when idle.
             if (valid_in) begin
-                line_buffer[y_in % KERNEL_SIZE][x_in] <= data_in;
+                line_buffer[wr_row_idx][x_in] <= data_in;
 
                 if (x_in == IMG_WIDTH - 1) begin
-                    y_count <= y_count + 9'd1;
-                    x_count <= 9'd0;
-                end else begin
-                    x_count <= x_count + 9'd1;
+                    if (wr_row_idx == KERNEL_SIZE-1)
+                        wr_row_idx <= 3'd0;
+                    else
+                        wr_row_idx <= wr_row_idx + 3'd1;
                 end
             end
 
+            // Process input data and update windows
             if (valid_in && !serial_busy) begin
                 if (y_in >= KERNEL_SIZE - 1 && x_in >= KERNEL_SIZE - 1) begin
-                    for (ii = 0; ii < KERNEL_SIZE; ii = ii + 1) begin
+
+                    // Form window when we have enough data
+                    if (x_in == KERNEL_SIZE-1) begin
                         for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
-                            if (ii == KERNEL_SIZE-1 && jj == KERNEL_SIZE-1)
-                                window[ii][jj] <= data_in;
-                            else
-                                window[ii][jj] <= line_buffer[(y_in - (KERNEL_SIZE-1-ii)) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1-jj)];
+                            window[0][jj] <= line_buffer[row_idx_m4][jj];
+                            window[1][jj] <= line_buffer[row_idx_m3][jj];
+                            window[2][jj] <= line_buffer[row_idx_m2][jj];
+                            window[3][jj] <= line_buffer[row_idx_m1][jj];
                         end
+                        window[4][0] <= line_buffer[wr_row_idx][0];
+                        window[4][1] <= line_buffer[wr_row_idx][1];
+                        window[4][2] <= line_buffer[wr_row_idx][2];
+                        window[4][3] <= line_buffer[wr_row_idx][3];
+                        window[4][4] <= data_in;
+                    end else begin
+                        for (ii = 0; ii < KERNEL_SIZE; ii = ii + 1) begin
+                            for (jj = 0; jj < KERNEL_SIZE-1; jj = jj + 1) begin
+                                window[ii][jj] <= window[ii][jj+1];
+                            end
+                        end
+                        window[0][KERNEL_SIZE-1] <= line_buffer[row_idx_m4][x_in];
+                        window[1][KERNEL_SIZE-1] <= line_buffer[row_idx_m3][x_in];
+                        window[2][KERNEL_SIZE-1] <= line_buffer[row_idx_m2][x_in];
+                        window[3][KERNEL_SIZE-1] <= line_buffer[row_idx_m1][x_in];
+                        window[4][KERNEL_SIZE-1] <= data_in;
                     end
-                    window_valid <= 1'b1;
                     serial_busy <= 1'b1;
                     ser_step <= 6'd0;
-                end else begin
-                    window_valid <= 1'b0;
                 end
-            end else begin
-                window_valid <= 1'b0;
             end
         end
     end

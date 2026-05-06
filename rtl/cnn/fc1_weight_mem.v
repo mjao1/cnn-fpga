@@ -9,18 +9,20 @@
 module fc1_weight_mem #(
     parameter DATA_WIDTH = 8,
     parameter IN_FEATURES = 256,
-    parameter OUT_FEATURES = 120
+    parameter OUT_FEATURES = 120,
+    parameter NEURON_IDX_W = $clog2(OUT_FEATURES),
+    parameter INPUT_IDX_W = $clog2(IN_FEATURES)
 )(
     input wire clk,
     input wire rst,
     
-    input wire [15:0] neuron_idx,
-    input wire [15:0] input_idx,
+    input wire [NEURON_IDX_W-1:0] neuron_idx,
+    input wire [INPUT_IDX_W-1:0] input_idx,
     output wire [DATA_WIDTH-1:0] weight_out
 );
 
-    localparam ADDR_WIDTH = 16;  // ceil(log2(IN_FEATURES * OUT_FEATURES))
     localparam DEPTH = IN_FEATURES * OUT_FEATURES;
+    localparam ADDR_WIDTH = $clog2(DEPTH);
     
     // Address based on indices
     wire [ADDR_WIDTH-1:0] read_addr;

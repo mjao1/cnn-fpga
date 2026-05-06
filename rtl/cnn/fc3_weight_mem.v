@@ -9,13 +9,15 @@
 module fc3_weight_mem #(
     parameter DATA_WIDTH = 8,
     parameter IN_FEATURES = 84,
-    parameter OUT_FEATURES = 10
+    parameter OUT_FEATURES = 10,
+    parameter NEURON_IDX_W = $clog2(OUT_FEATURES),
+    parameter INPUT_IDX_W = $clog2(IN_FEATURES)
 )(
     input wire clk,
     input wire rst,
     
-    input wire [7:0] neuron_idx,
-    input wire [15:0] input_idx,
+    input wire [NEURON_IDX_W-1:0] neuron_idx,
+    input wire [INPUT_IDX_W-1:0] input_idx,
     output wire [DATA_WIDTH-1:0] weight_out
 );
 

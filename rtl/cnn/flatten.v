@@ -18,6 +18,8 @@ module flatten #(
     output reg [7:0] addr_out                           // Address in flattened vector (0-255)
 );
 
+    localparam CH_IDX_W = $clog2(IN_CHANNELS);
+
     reg [DATA_WIDTH-1:0] flat_mem [0:OUT_FEATURES-1];
     
     reg [3:0] flatten_count;
@@ -38,12 +40,8 @@ module flatten #(
         end else begin
             if (!flatten_done) begin
                 if (valid_in) begin
-                    // For the current valid_in event, which corresponds to one coordinate of the 4x4 grid,
-                    // store each channel's value into flat_mem at the proper offset.
-                    // Position major order: all 16 channels
-                    // Address = position * 16 + channel
                     for(i = 0; i < IN_CHANNELS; i = i + 1) begin
-                        flat_mem[flatten_count*16 + i] <= data_in[((i+1)*DATA_WIDTH)-1 -: DATA_WIDTH];
+                        flat_mem[{flatten_count, {CH_IDX_W{1'b0}}} + i[CH_IDX_W-1:0]] <= data_in[((i+1)*DATA_WIDTH)-1 -: DATA_WIDTH];
                     end
                     if (flatten_count == 16 - 1) begin
                         flatten_done <= 1'b1;

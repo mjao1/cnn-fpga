@@ -8,12 +8,13 @@
 `endif
 module fc1_bias_mem #(
     parameter DATA_WIDTH = 8,
-    parameter NUM_NEURONS = 120
+    parameter NUM_NEURONS = 120,
+    parameter NEURON_IDX_W = $clog2(NUM_NEURONS)
 )(
     input wire clk,
     input wire rst,
     
-    input wire [15:0] neuron_idx,
+    input wire [NEURON_IDX_W-1:0] neuron_idx,
     output wire [DATA_WIDTH-1:0] bias_out
 );
 
@@ -36,7 +37,7 @@ module fc1_bias_mem #(
         .data_out_a(),
         
         // Port B (readonly)
-        .addr_b(neuron_idx[ADDR_WIDTH-1:0]),
+        .addr_b(neuron_idx),
         .data_out_b(bias_out)
     );
 

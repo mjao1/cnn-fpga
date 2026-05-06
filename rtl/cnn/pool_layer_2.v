@@ -9,19 +9,22 @@ module pool_layer_2 #(
     parameter OUT_WIDTH = 4,      // Output feature map width (8/2)
     parameter OUT_HEIGHT = 4,     // Output feature map height (8/2)
     parameter NUM_CHANNELS = 16,  // Number of channels (same for input and output)
-    parameter DATA_WIDTH = 8      // Data width (8-bit fixed point)
+    parameter DATA_WIDTH = 8,     // Data width (8-bit fixed point)
+    parameter X_IN_W = $clog2(IN_WIDTH),
+    parameter X_OUT_W = $clog2(OUT_WIDTH),
+    parameter Y_OUT_W = $clog2(OUT_HEIGHT)
 )(
     input wire clk,
     input wire rst,
     input wire valid_in,
     input wire [(DATA_WIDTH*NUM_CHANNELS)-1:0] data_in,
-    input wire [7:0] x_in,
-    input wire [7:0] y_in,
+    input wire [X_IN_W-1:0] x_in,
+    input wire y_row_lsb,
     
     output wire valid_out,
     output wire [(DATA_WIDTH*NUM_CHANNELS)-1:0] data_out,
-    output wire [7:0] x_out,
-    output wire [7:0] y_out
+    output wire [X_OUT_W-1:0] x_out,
+    output wire [Y_OUT_W-1:0] y_out
 );
 
     reg [DATA_WIDTH-1:0] buffer [0:NUM_CHANNELS-1][0:1][0:IN_WIDTH-1]; // Double buffer for two rows per channel
@@ -34,13 +37,11 @@ module pool_layer_2 #(
     reg [DATA_WIDTH-1:0] window_10 [0:NUM_CHANNELS-1];
     reg [DATA_WIDTH-1:0] window_11 [0:NUM_CHANNELS-1];
     
-    reg pool_valid [0:NUM_CHANNELS-1];
+    reg pool_valid;
     wire pool_valid_out [0:NUM_CHANNELS-1];
     
-    reg [7:0] x_pos;
-    reg [7:0] y_pos;
-    reg [7:0] pool_x;
-    reg [7:0] pool_y;
+    reg [X_OUT_W-1:0] pool_x;
+    reg [Y_OUT_W-1:0] pool_y;
     
     // Unpack input channels
     genvar c;
@@ -63,7 +64,7 @@ module pool_layer_2 #(
             max_pool_2x2 pool_unit (
                 .clk(clk),
                 .rst(rst),
-                .valid_in(pool_valid[c]),
+                .valid_in(pool_valid),
                 .data_in_00(window_00[c]),
                 .data_in_01(window_01[c]),
                 .data_in_10(window_10[c]),
@@ -78,14 +79,10 @@ module pool_layer_2 #(
     integer i, j;
     always @(posedge clk) begin
         if (rst) begin
-            x_pos <= 0;
-            y_pos <= 0;
             pool_x <= 0;
             pool_y <= 0;
             
-            for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
-                pool_valid[i] <= 0;
-            end
+            pool_valid <= 0;
 
             for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
                 for (j = 0; j < IN_WIDTH; j = j + 1) begin
@@ -95,34 +92,26 @@ module pool_layer_2 #(
             end
         end else begin
             if (valid_in) begin
-                x_pos <= x_in;
-                y_pos <= y_in;
-
                 for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
-                    buffer[i][y_in % 2][x_in] <= data_in_channel[i];
+                    buffer[i][y_row_lsb][x_in] <= data_in_channel[i];
                 end
                 
                 // form a window for pooling when complete 2x2 window)
-                if ((x_in % 2 == 1) && (y_in % 2 == 1)) begin
+                if ((x_in % 2 == 1) && (y_row_lsb == 1'b1)) begin
                     for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
                         window_00[i] <= buffer[i][0][x_in-1]; // top left
                         window_01[i] <= buffer[i][0][x_in];   // top right
                         window_10[i] <= buffer[i][1][x_in-1]; // bottom left
                         window_11[i] <= data_in_channel[i];   // bottom right (current input)
-                        
-                        pool_valid[i] <= 1;
                     end
+                    pool_valid <= 1;
                     
                     // coordinates now handled by counters on output valid
                 end else begin
-                    for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
-                        pool_valid[i] <= 0;
-                    end
+                    pool_valid <= 0;
                 end
             end else begin
-                for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
-                    pool_valid[i] <= 0;
-                end
+                pool_valid <= 0;
             end
             // coordinate counters for POOL2 output
             if (pool_valid_out[0]) begin

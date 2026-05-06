@@ -22,16 +22,20 @@ module fc_layer_3 #(
     output reg done_out
 );
     localparam NUM_BATCHES = OUT_FEATURES / NUM_PARALLEL;
+    localparam MEM_NEURON_W = $clog2(OUT_FEATURES);
+    localparam MEM_INPUT_W  = $clog2(IN_FEATURES);
 
     // States
-    localparam IDLE = 3'b000;         // Waiting for input
-    localparam LOAD = 3'b001;         // Loading input features
-    localparam WAIT_WEIGHT = 3'b101;  // Wait for first weight from BRAM
-    localparam COMPUTE = 3'b010;      // Compute one neuron
-    localparam OUTPUT = 3'b011;
-    localparam DONE = 3'b100;         // All neurons processed
+    localparam IDLE = 4'd0;
+    localparam LOAD = 4'd1;
+    localparam LOAD_BASE_HOLD = 4'd7;
+    localparam WAIT_WEIGHT = 4'd2;
+    localparam COMPUTE_MULT = 4'd3;
+    localparam COMPUTE_ACC = 4'd4;
+    localparam OUTPUT = 4'd5;
+    localparam DONE = 4'd6;
 
-    reg [2:0] state;
+    reg [3:0] state;
     reg [3:0] current_batch;
     reg [6:0] current_input;
     reg [6:0] compute_input_idx;  // Delayed index for pipelined MAC
@@ -41,16 +45,27 @@ module fc_layer_3 #(
     reg [IN_FEATURES-1:0] input_valid;
 
     reg signed [23:0] accumulator [0:NUM_PARALLEL-1];
+    reg signed [15:0] partial_product [0:NUM_PARALLEL-1];
 
     wire [DATA_WIDTH-1:0] weight [0:NUM_PARALLEL-1];
     wire [DATA_WIDTH-1:0] bias [0:NUM_PARALLEL-1];
 
+    // Pipeline register (capture input_buffer mux output)
+    reg [DATA_WIDTH-1:0] input_data_q;
+
     reg [$clog2(IN_FEATURES):0] valid_count;
     reg process_ready;
+
+    reg [MEM_NEURON_W:0] neuron_idx_base_r;
 
     genvar p;
     generate
         for (p = 0; p < NUM_PARALLEL; p = p + 1) begin : par
+            wire [MEM_NEURON_W-1:0] mem_neuron_idx;
+            wire [MEM_INPUT_W-1:0] mem_input_idx;
+            assign mem_neuron_idx = neuron_idx_base_r[MEM_NEURON_W-1:0] + p[$clog2(NUM_PARALLEL)-1:0];
+            assign mem_input_idx = current_input;
+
             fc3_weight_mem #(
                 .DATA_WIDTH(DATA_WIDTH),
                 .IN_FEATURES(IN_FEATURES),
@@ -58,8 +73,8 @@ module fc_layer_3 #(
             ) fc3_weights (
                 .clk(clk),
                 .rst(rst),
-                .neuron_idx(current_batch * NUM_PARALLEL + p),
-                .input_idx({9'd0, current_input}),
+                .neuron_idx(mem_neuron_idx),
+                .input_idx(mem_input_idx),
                 .weight_out(weight[p])
             );
 
@@ -69,7 +84,7 @@ module fc_layer_3 #(
             ) fc3_biases (
                 .clk(clk),
                 .rst(rst),
-                .neuron_idx(current_batch * NUM_PARALLEL + p),
+                .neuron_idx(mem_neuron_idx),
                 .bias_out(bias[p])
             );
         end
@@ -106,13 +121,18 @@ module fc_layer_3 #(
             done_out <= 1'b0;
             process_ready <= 1'b0;
             valid_count <= 0;
+            input_data_q <= 8'd0;
+            for (i = 0; i < NUM_PARALLEL; i = i + 1)
+                partial_product[i] <= 16'sd0;
 
             for (i = 0; i < IN_FEATURES; i = i + 1) begin
                 input_buffer[i] <= 8'd0;
                 input_valid[i] <= 1'b0;
             end
+            neuron_idx_base_r <= {(MEM_NEURON_W+1){1'b0}};
         end else begin
             valid_out <= 1'b0;
+            input_data_q <= input_buffer[current_input];
 
             // Process incoming data (can happen in any state)
             if (valid_in) begin
@@ -140,6 +160,11 @@ module fc_layer_3 #(
                 end
 
                 LOAD: begin
+                    neuron_idx_base_r <= current_batch * NUM_PARALLEL;
+                    state <= LOAD_BASE_HOLD;
+                end
+
+                LOAD_BASE_HOLD: begin
                     state <= WAIT_WEIGHT;
                 end
 
@@ -148,12 +173,18 @@ module fc_layer_3 #(
                         accumulator[i] <= {{16{bias[i][7]}}, bias[i]} << FRAC_BITS;
                     compute_input_idx <= current_input;
                     current_input <= current_input + 7'd1;
-                    state <= COMPUTE;
+                    state <= COMPUTE_MULT;
                 end
 
-                COMPUTE: begin
+                COMPUTE_MULT: begin
                     for (i = 0; i < NUM_PARALLEL; i = i + 1)
-                        accumulator[i] <= accumulator[i] + $signed(weight[i]) * $signed(input_buffer[compute_input_idx]);
+                        partial_product[i] <= $signed(weight[i]) * $signed(input_data_q);
+                    state <= COMPUTE_ACC;
+                end
+
+                COMPUTE_ACC: begin
+                    for (i = 0; i < NUM_PARALLEL; i = i + 1)
+                        accumulator[i] <= accumulator[i] + {{8{partial_product[i][15]}}, partial_product[i]};
 
                     if (compute_input_idx == IN_FEATURES - 1) begin
                         output_idx <= 0;
@@ -161,13 +192,14 @@ module fc_layer_3 #(
                     end else begin
                         compute_input_idx <= current_input;
                         current_input <= current_input + 7'd1;
+                        state <= COMPUTE_MULT;
                     end
                 end
 
                 OUTPUT: begin
                     valid_out <= 1'b1;
                     data_out <= scale_and_saturate(accumulator[output_idx]);
-                    neuron_idx <= current_batch * NUM_PARALLEL + output_idx;
+                    neuron_idx <= neuron_idx_base_r[MEM_NEURON_W-1:0] + output_idx;
 
                     if (output_idx == NUM_PARALLEL - 1) begin
                         if (current_batch == NUM_BATCHES - 1) begin

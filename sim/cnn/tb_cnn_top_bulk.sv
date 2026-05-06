@@ -17,7 +17,8 @@ module tb_cnn_top_bulk;
     reg start;
     reg [DATA_WIDTH-1:0] pixel_data;
     reg pixel_valid;
-    reg [9:0] pixel_addr;
+    reg [4:0] pixel_row;
+    reg [4:0] pixel_col;
     
     wire done;
     wire [3:0] pred_digit;
@@ -43,7 +44,8 @@ module tb_cnn_top_bulk;
         .start(start),
         .pixel_data(pixel_data),
         .pixel_valid(pixel_valid),
-        .pixel_addr(pixel_addr),
+        .pixel_row_in(pixel_row),
+        .pixel_col_in(pixel_col),
         .done(done),
         .pred_digit(pred_digit),
         .pred_confidence(pred_confidence)
@@ -66,7 +68,8 @@ module tb_cnn_top_bulk;
             start = 0;
             pixel_data = 0;
             pixel_valid = 0;
-            pixel_addr = 0;
+            pixel_row = 0;
+            pixel_col = 0;
             repeat (20) @(posedge clk);
             rst = 0;
             @(posedge clk); #1;
@@ -78,7 +81,8 @@ module tb_cnn_top_bulk;
             
             for (integer i = 0; i < NUM_PIXELS; i = i + 1) begin
                 pixel_valid = 1;
-                pixel_addr = i;
+                pixel_row = i / 10'd28;
+                pixel_col = i % 10'd28;
                 pixel_data = test_image[i];
                 @(posedge clk); #1;
             end

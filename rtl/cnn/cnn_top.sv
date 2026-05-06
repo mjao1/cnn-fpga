@@ -14,7 +14,8 @@ module cnn_top #(
     // For test_image.txt input
     input logic [DATA_WIDTH-1:0] pixel_data,
     input logic pixel_valid,
-    input logic [9:0] pixel_addr,
+    input logic [$clog2(IMG_HEIGHT)-1:0] pixel_row_in,
+    input logic [$clog2(IMG_WIDTH)-1:0] pixel_col_in,
     
     output logic done,
     output logic [3:0] pred_digit,
@@ -36,10 +37,7 @@ module cnn_top #(
     state_t state;
     
     logic [DATA_WIDTH-1:0] image_buffer [0:IMG_HEIGHT-1][0:IMG_WIDTH-1];
-    logic image_loaded;
-    
     logic [9:0] pixel_count;
-    logic [4:0] x_pos, y_pos;
     logic [4:0] conv1_rd_x, conv1_rd_y;
     logic [5:0] conv2_count;
     logic [3:0] fc_count;
@@ -101,11 +99,9 @@ module cnn_top #(
     // Pool Layer 2 signals
     logic pool2_valid_out;
     logic [DATA_WIDTH*16-1:0] pool2_data_out;
-    logic [7:0] pool2_x_out, pool2_y_out;
+    logic [1:0] pool2_x_out, pool2_y_out;
     
     // Flatten signals
-    logic [3:0] flatten_channel;
-    logic flatten_valid_in;
     logic flatten_valid_out;
     logic [DATA_WIDTH-1:0] flatten_data_out;
     logic [7:0] flatten_addr_out;
@@ -121,6 +117,9 @@ module cnn_top #(
     logic [DATA_WIDTH-1:0] class_scores [0:NUM_CLASSES-1];
     logic [3:0] max_class_idx;
     logic [DATA_WIDTH-1:0] max_class_score;
+    logic [3:0] max_scan_idx;
+    logic [3:0] max_scan_class_idx;
+    logic signed [DATA_WIDTH-1:0] max_scan_val;
     
     logic pool2_valid_in;
     assign pool2_valid_in = conv2_valid_out;
@@ -129,6 +128,13 @@ module cnn_top #(
     
     logic [4:0] pool2_valid_count;
     logic pool2_complete;
+
+    logic img_wr_pending;
+    (* max_fanout = 32 *)
+    logic [$clog2(IMG_HEIGHT)-1:0] img_wr_row;
+    (* max_fanout = 32 *)
+    logic [$clog2(IMG_WIDTH)-1:0] img_wr_col;
+    logic [DATA_WIDTH-1:0] img_wr_data;
     
     // Conv Layer 1 (1x28x28 -> 6x24x24)
     conv_layer_1 #(
@@ -217,8 +223,8 @@ module cnn_top #(
         .rst(rst),
         .valid_in(pool2_valid_in),
         .data_in(conv2_data_out),
-        .x_in(conv2_x_out),
-        .y_in(conv2_y_out),
+        .x_in(conv2_x_out[2:0]),
+        .y_row_lsb(conv2_y_out[0]),
         .valid_out(pool2_valid_out),
         .data_out(pool2_data_out),
         .x_out(pool2_x_out),
@@ -264,22 +270,6 @@ module cnn_top #(
         .done_out(fc_done_out)
     );
     
-    // Argmax logic for finding max class score
-    logic [3:0] argmax_idx;
-    logic signed [DATA_WIDTH-1:0] argmax_val;
-    
-    always_comb begin
-        argmax_idx = 4'd0;
-        argmax_val = $signed(class_scores[0]);
-        
-        for (int i = 1; i < NUM_CLASSES; i++) begin
-            if ($signed(class_scores[i]) > argmax_val) begin
-                argmax_val = $signed(class_scores[i]);
-                argmax_idx = i[3:0];
-            end
-        end
-    end
-    
     // Main state machine
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -287,28 +277,30 @@ module cnn_top #(
             done <= 1'b0;
             pred_digit <= 4'd0;
             pred_confidence <= 8'd0;
-            image_loaded <= 1'b0;
             pixel_count <= 10'd0;
             conv2_count <= 6'd0;
             fc_count <= 4'd0;
             flatten_complete <= 1'b0;
             pool2_valid_count <= 5'd0;
             conv1_valid_in <= 1'b0;
-            flatten_valid_in <= 1'b0;
             fc_start <= 1'b0;
-            flatten_channel <= 4'd0;
             max_class_idx <= 4'd0;
             max_class_score <= 8'd0;
+            max_scan_idx <= 4'd0;
+            max_scan_class_idx <= 4'd0;
+            max_scan_val <= '0;
             pool1_buffer_count <= 8'd0;
             pool1_buffer_complete <= 1'b0;
             conv2_feed_x <= 8'd0;
             conv2_feed_y <= 8'd0;
             conv2_feed_valid <= 1'b0;
             pool2_complete <= 1'b0;
-            x_pos <= 5'd0;
-            y_pos <= 5'd0;
             conv1_rd_x <= 5'd0;
             conv1_rd_y <= 5'd0;
+            img_wr_pending <= 1'b0;
+            img_wr_row <= '0;
+            img_wr_col <= '0;
+            img_wr_data <= '0;
             
             for (int i = 0; i < IMG_HEIGHT; i++) begin
                 for (int j = 0; j < IMG_WIDTH; j++) begin
@@ -330,7 +322,6 @@ module cnn_top #(
         end else begin
             // Default signals
             conv1_valid_in <= 1'b0;
-            flatten_valid_in <= 1'b0;
             fc_start <= 1'b0;
             conv2_feed_valid <= 1'b0;
             
@@ -367,30 +358,26 @@ module cnn_top #(
                     if (start) begin
                         state <= LOAD_IMAGE;
                         pixel_count <= 10'd0;
-                        image_loaded <= 1'b0;
+                        img_wr_pending <= 1'b0;
                     end
                 end
                 
                 LOAD_IMAGE: begin
-                    if (pixel_valid) begin
-                        // Calculate position in 2D image (row-major order)
-                        x_pos <= pixel_addr % IMG_WIDTH;
-                        y_pos <= pixel_addr / IMG_WIDTH;
-                        
-                        // Store pixel in buffer
-                        image_buffer[pixel_addr / IMG_WIDTH][pixel_addr % IMG_WIDTH] <= pixel_data;
-                        
-                        pixel_count <= pixel_count + 10'd1;
-                        
-                        if (pixel_count == (IMG_WIDTH * IMG_HEIGHT - 1)) begin
-                            image_loaded <= 1'b1;
+                    if (img_wr_pending) begin
+                        image_buffer[img_wr_row][img_wr_col] <= img_wr_data;
+                        img_wr_pending <= 1'b0;
+                        if (pixel_count == (IMG_WIDTH * IMG_HEIGHT)) begin
                             state <= CONV1;
-                            // Reset pos for CONV1
-                            x_pos <= 5'd0;
-                            y_pos <= 5'd0;
                             conv1_rd_x <= 5'd0;
                             conv1_rd_y <= 5'd0;
                         end
+                    end
+                    if (pixel_valid) begin
+                        img_wr_row <= pixel_row_in;
+                        img_wr_col <= pixel_col_in;
+                        img_wr_data <= pixel_data;
+                        img_wr_pending <= 1'b1;
+                        pixel_count <= pixel_count + 10'd1;
                     end
                 end
                 
@@ -469,15 +456,30 @@ module cnn_top #(
                         fc_count <= fc_count + 4'd1;
                     end
                     if (fc_count == NUM_CLASSES) begin
+                        max_scan_idx <= 4'd0;
+                        max_scan_class_idx <= 4'd0;
+                        max_scan_val <= '0;
                         state <= FIND_MAX;
                     end
                 end
                 
                 FIND_MAX: begin
-                    // Use combinational argmax result
-                    max_class_idx <= argmax_idx;
-                    max_class_score <= argmax_val;
-                    state <= DONE_STATE;
+                    // Sequential argmax
+                    if (max_scan_idx == 4'd0) begin
+                        max_scan_val <= $signed(class_scores[0]);
+                        max_scan_class_idx <= 4'd0;
+                        max_scan_idx <= 4'd1;
+                    end else if (max_scan_idx < NUM_CLASSES) begin
+                        if ($signed(class_scores[max_scan_idx]) > max_scan_val) begin
+                            max_scan_val <= $signed(class_scores[max_scan_idx]);
+                            max_scan_class_idx <= max_scan_idx;
+                        end
+                        max_scan_idx <= max_scan_idx + 4'd1;
+                    end else begin
+                        max_class_idx <= max_scan_class_idx;
+                        max_class_score <= max_scan_val;
+                        state <= DONE_STATE;
+                    end
                 end
                 
                 DONE_STATE: begin

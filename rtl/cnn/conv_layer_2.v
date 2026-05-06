@@ -28,14 +28,56 @@ module conv_layer_2 #(
     output wire busy
 );
 
+    localparam MEM_F_W = $clog2(OUT_CHANNELS);
+    localparam MEM_C_W = $clog2(IN_CHANNELS);
+    localparam MEM_K_W = $clog2(KERNEL_SIZE);
+
     reg [DATA_WIDTH-1:0] line_buffer [0:IN_CHANNELS-1][0:KERNEL_SIZE-1][0:MAP_WIDTH-1];
     reg [DATA_WIDTH-1:0] window [0:IN_CHANNELS-1][0:KERNEL_SIZE-1][0:KERNEL_SIZE-1];
     
     reg signed [DATA_WIDTH-1:0] weight [0:OUT_CHANNELS-1][0:IN_CHANNELS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
     reg signed [DATA_WIDTH-1:0] bias [0:OUT_CHANNELS-1];
     
-    reg [7:0] x_count, y_count;
-    reg window_valid;
+    reg [2:0] wr_row_idx;
+    reg [2:0] row_idx_m1;
+    reg [2:0] row_idx_m2;
+    reg [2:0] row_idx_m3;
+    reg [2:0] row_idx_m4;
+
+    always @(*) begin
+        case (wr_row_idx)
+            3'd0: begin
+                row_idx_m1 = 3'd4;
+                row_idx_m2 = 3'd3;
+                row_idx_m3 = 3'd2;
+                row_idx_m4 = 3'd1;
+            end
+            3'd1: begin
+                row_idx_m1 = 3'd0;
+                row_idx_m2 = 3'd4;
+                row_idx_m3 = 3'd3;
+                row_idx_m4 = 3'd2;
+            end
+            3'd2: begin
+                row_idx_m1 = 3'd1;
+                row_idx_m2 = 3'd0;
+                row_idx_m3 = 3'd4;
+                row_idx_m4 = 3'd3;
+            end
+            3'd3: begin
+                row_idx_m1 = 3'd2;
+                row_idx_m2 = 3'd1;
+                row_idx_m3 = 3'd0;
+                row_idx_m4 = 3'd4;
+            end
+            default: begin
+                row_idx_m1 = 3'd3;
+                row_idx_m2 = 3'd2;
+                row_idx_m3 = 3'd1;
+                row_idx_m4 = 3'd0;
+            end
+        endcase
+    end
 
     reg serial_busy;
     reg serial_busy_d;
@@ -58,21 +100,23 @@ module conv_layer_2 #(
     localparam LOAD_BIAS_DATA = 3'b100;     // Store bias
     localparam RUNNING = 3'b101;
     
-    assign ready = (state == RUNNING);
-    
     reg [2:0] state;
     reg [7:0] current_filter;
     reg [7:0] current_channel;
     reg [7:0] current_kernel;
-    reg load_bias;
+
+    assign ready = (state == RUNNING);
     
     wire signed [DATA_WIDTH-1:0] loaded_weight;
     wire signed [DATA_WIDTH-1:0] loaded_bias;
     
     wire [DATA_WIDTH-1:0] data_in_channel [0:IN_CHANNELS-1];
     
-    reg [DATA_WIDTH-1:0] filter_outputs [0:OUT_CHANNELS-1];
-    
+    wire [7:0] weight_kernel_row;
+    wire [7:0] weight_kernel_col;
+    assign weight_kernel_row = current_kernel / KERNEL_SIZE;
+    assign weight_kernel_col = current_kernel % KERNEL_SIZE;
+
     // Unpack input channels
     genvar c;
     generate
@@ -89,10 +133,10 @@ module conv_layer_2 #(
     ) conv2_weights (
         .clk(clk),
         .rst(rst),
-        .filter_idx(current_filter),
-        .in_channel(current_channel),
-        .kernel_row(current_kernel / KERNEL_SIZE),
-        .kernel_col(current_kernel % KERNEL_SIZE),
+        .filter_idx(current_filter[MEM_F_W-1:0]),
+        .in_channel(current_channel[MEM_C_W-1:0]),
+        .kernel_row(weight_kernel_row[MEM_K_W-1:0]),
+        .kernel_col(weight_kernel_col[MEM_K_W-1:0]),
         .weight_out(loaded_weight)
     );
 
@@ -102,10 +146,17 @@ module conv_layer_2 #(
     ) conv2_biases (
         .clk(clk),
         .rst(rst),
-        .filter_idx(current_filter),
+        .filter_idx(current_filter[MEM_F_W-1:0]),
         .bias_out(loaded_bias)
     );
     
+    // Pipeline registers for weight/bias write path
+    reg signed [DATA_WIDTH-1:0] loaded_weight_q;
+    reg signed [DATA_WIDTH-1:0] loaded_bias_q;
+    reg [7:0] write_filter_q, write_channel_q, write_kernel_q;
+    reg write_we_q;
+    reg write_bias_we_q;
+
     // Weight loading state machine
     integer ii, jj, kk;
     always @(posedge clk) begin
@@ -114,8 +165,15 @@ module conv_layer_2 #(
             current_filter <= 8'd0;
             current_channel <= 8'd0;
             current_kernel <= 8'd0;
-            load_bias <= 1'b0;
-            
+
+            loaded_weight_q <= 8'sd0;
+            loaded_bias_q <= 8'sd0;
+            write_filter_q <= 8'd0;
+            write_channel_q <= 8'd0;
+            write_kernel_q <= 8'd0;
+            write_we_q <= 1'b0;
+            write_bias_we_q <= 1'b0;
+
             for (ii = 0; ii < OUT_CHANNELS; ii = ii + 1) begin
                 bias[ii] <= 8'd0;
                 for (jj = 0; jj < IN_CHANNELS; jj = jj + 1) begin
@@ -125,13 +183,27 @@ module conv_layer_2 #(
                 end
             end
         end else begin
+            // Pipeline stage 1: capture BRAM output and current write pointer
+            loaded_weight_q <= loaded_weight;
+            loaded_bias_q <= loaded_bias;
+            write_filter_q <= current_filter;
+            write_channel_q <= current_channel;
+            write_kernel_q <= current_kernel;
+            write_we_q <= (state == LOAD_WEIGHTS_DATA);
+            write_bias_we_q <= (state == LOAD_BIAS_DATA);
+
+            // Pipeline stage 2: array writes one cycle later
+            if (write_we_q)
+                weight[write_filter_q][write_channel_q][write_kernel_q] <= loaded_weight_q;
+            if (write_bias_we_q)
+                bias[write_filter_q] <= loaded_bias_q;
+
             case (state)
                 INIT: begin
                     state <= LOAD_WEIGHTS_ADDR;
                     current_filter <= 8'd0;
                     current_channel <= 8'd0;
                     current_kernel <= 8'd0;
-                    load_bias <= 1'b0;
                 end
                 
                 LOAD_WEIGHTS_ADDR: begin
@@ -139,8 +211,6 @@ module conv_layer_2 #(
                 end
                 
                 LOAD_WEIGHTS_DATA: begin
-                    weight[current_filter][current_channel][current_kernel] <= loaded_weight;
-                    
                     // Move to next weight
                     if (current_kernel == KERNEL_SIZE*KERNEL_SIZE-1) begin
                         current_kernel <= 8'd0;
@@ -163,9 +233,6 @@ module conv_layer_2 #(
                 end
                 
                 LOAD_BIAS_DATA: begin
-                    // Store bias
-                    bias[current_filter] <= loaded_bias;
-                    
                     // Move to next filter
                     if (current_filter == OUT_CHANNELS-1) begin
                         state <= RUNNING;
@@ -218,92 +285,44 @@ module conv_layer_2 #(
             end
         end
     endgenerate
-    
-    // Instantiate conv_5x5 modules for each filter and input channel combination
+
+    // Pipeline mux outputs and start pulse
+    (* max_fanout = 48 *) reg conv_start_q;
+    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_din_q [0:IN_CHANNELS-1];
+    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_w_in_q [0:OUT_CHANNELS-1][0:IN_CHANNELS-1];
+    integer pi, pj;
+    always @(posedge clk) begin
+        if (rst) begin
+            conv_start_q <= 1'b0;
+            for (pi = 0; pi < IN_CHANNELS; pi = pi + 1)
+                conv_din_q[pi] <= 8'sd0;
+            for (pi = 0; pi < OUT_CHANNELS; pi = pi + 1)
+                for (pj = 0; pj < IN_CHANNELS; pj = pj + 1)
+                    conv_w_in_q[pi][pj] <= 8'sd0;
+        end else begin
+            conv_start_q <= conv_start;
+            for (pi = 0; pi < IN_CHANNELS; pi = pi + 1)
+                conv_din_q[pi] <= conv_din[pi];
+            for (pi = 0; pi < OUT_CHANNELS; pi = pi + 1)
+                for (pj = 0; pj < IN_CHANNELS; pj = pj + 1)
+                    conv_w_in_q[pi][pj] <= conv_w_in[pi][pj];
+        end
+    end
+
+    // Instantiate 6 convolution modules for each filter
     generate
         genvar f, chan;
         for (f = 0; f < OUT_CHANNELS; f = f + 1) begin: filter_units
             
-            // Accumulation signals for each output channel
             wire [IN_CHANNELS-1:0] conv_valid;
-            wire signed [DATA_WIDTH-1:0] conv_result [0:IN_CHANNELS-1]; // Scaled output
-            wire signed [23:0] conv_raw_sum [0:IN_CHANNELS-1];          // Raw sum in Q2.14 format
-            reg signed [23:0] conv_raw_sum_held [0:IN_CHANNELS-1];      // Extra register to hold values
-            reg conv_valid_d1;                                          // Delayed conv_valid to sync with held values
-            reg signed [26:0] accumulator;
-            reg accum_valid;
-            
-            // Instantiate a 5x5 convolution module for each input channel of this filter
-            for (chan = 0; chan < IN_CHANNELS; chan = chan + 1) begin: channel_convs
-                conv_5x5 #(
-                    .FRAC_BITS(FRAC_BITS)
-                ) conv_inst (
-                    .clk(clk),
-                    .rst(rst),
-                    .start(conv_start),
-                    .data_in(conv_din[chan]),
-                    .weight_in(conv_w_in[f][chan]),
-                    .done(conv_valid[chan]),
-                    .data_out(conv_result[chan]),
-                    .raw_sum(conv_raw_sum[chan])
-                );
-            end
-            
-            // Accumulation logic across channels for this filter
-            // Use raw sums from conv_5x5 (Q2.14) for full precision accumulation
-            // Then scale once at the end
-            reg signed [26:0] scaled_result;
-            
-            always @(posedge clk) begin
-                if (rst) begin
-                    accumulator <= 27'sd0;
-                    scaled_result <= 27'sd0;
-                    accum_valid <= 1'b0;
-                    conv_valid_d1 <= 1'b0;
-                    for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
-                        conv_raw_sum_held[kk] <= 24'sd0;
-                    end
-                end else begin
-                    conv_valid_d1 <= conv_valid[0];
-                    if (conv_valid[0]) begin
-                        for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
-                            conv_raw_sum_held[kk] <= conv_raw_sum[kk];
-                        end
-                    end
-                    
-                    // Use held values one cycle later
-                    if (conv_valid_d1) begin
-                        // Perform full precision accumulation in one cycle
-                        accumulator = 27'sd0;
-                        
-                        // Sum all channel raw sums
-                        for (kk = 0; kk < IN_CHANNELS; kk = kk + 1) begin
-                            accumulator = accumulator + {{3{conv_raw_sum_held[kk][23]}}, conv_raw_sum_held[kk]};
-                        end
-                        
-                        // Add the bias term
-                        accumulator = accumulator + ($signed({{19{bias[f][7]}}, bias[f]}) << FRAC_BITS);
-                        
-                        // Scale down to Q1.7
-                        scaled_result = accumulator >>> FRAC_BITS;
-                        
-                        accum_valid = 1'b1;
-                    end else begin
-                        accum_valid = 1'b0;
-                    end
-                end
-            end
-            
-            relu relu_inst (
-                .clk(clk),
-                .rst(rst),
-                .valid_in(accum_valid),
-                .data_in(saturation(scaled_result)),
-                .valid_out(relu_valid_out[f]),
-                .data_out(relu_out[f])
-            );
-            
-            // Saturate 27-bit scaled result to 8-bit signed range
+            wire signed [DATA_WIDTH-1:0] conv_result [0:IN_CHANNELS-1];
+            wire signed [23:0] conv_raw_sum [0:IN_CHANNELS-1];
+            reg conv_valid_d1;
+            reg conv_valid_d2;
+            reg signed [24:0] acc_pair01, acc_pair23, acc_pair45;
+            reg signed [DATA_WIDTH-1:0] relu_din_r;
+            reg relu_go;
+
             function automatic signed [7:0] saturation;
                 input signed [26:0] value;
                 begin
@@ -315,6 +334,62 @@ module conv_layer_2 #(
                         saturation = value[7:0];
                 end
             endfunction
+
+            for (chan = 0; chan < IN_CHANNELS; chan = chan + 1) begin: channel_convs
+                conv_5x5 #(
+                    .FRAC_BITS(FRAC_BITS)
+                ) conv_inst (
+                    .clk(clk),
+                    .rst(rst),
+                    .start(conv_start_q),
+                    .data_in(conv_din_q[chan]),
+                    .weight_in(conv_w_in_q[f][chan]),
+                    .done(conv_valid[chan]),
+                    .data_out(conv_result[chan]),
+                    .raw_sum(conv_raw_sum[chan])
+                );
+            end
+
+            wire signed [26:0] bias_ext;
+            assign bias_ext = $signed({{19{bias[f][7]}}, bias[f]}) << FRAC_BITS;
+
+            wire signed [26:0] acc_sum3;
+            assign acc_sum3 = $signed(acc_pair01) + $signed(acc_pair23) + $signed(acc_pair45) + bias_ext;
+
+            wire signed [26:0] scaled_relu_in;
+            assign scaled_relu_in = acc_sum3 >>> FRAC_BITS;
+            
+            always @(posedge clk) begin
+                if (rst) begin
+                    conv_valid_d1 <= 1'b0;
+                    conv_valid_d2 <= 1'b0;
+                    relu_go <= 1'b0;
+                    relu_din_r <= 8'sd0;
+                    acc_pair01 <= 25'sd0;
+                    acc_pair23 <= 25'sd0;
+                    acc_pair45 <= 25'sd0;
+                end else begin
+                    conv_valid_d1 <= conv_valid[0];
+                    conv_valid_d2 <= conv_valid_d1;
+                    relu_go <= conv_valid_d2;
+                    if (conv_valid[0]) begin
+                        acc_pair01 <= conv_raw_sum[0] + conv_raw_sum[1];
+                        acc_pair23 <= conv_raw_sum[2] + conv_raw_sum[3];
+                        acc_pair45 <= conv_raw_sum[4] + conv_raw_sum[5];
+                    end
+                    if (conv_valid_d1)
+                        relu_din_r <= saturation(scaled_relu_in);
+                end
+            end
+            
+            relu relu_inst (
+                .clk(clk),
+                .rst(rst),
+                .valid_in(relu_go),
+                .data_in(relu_din_r),
+                .valid_out(relu_valid_out[f]),
+                .data_out(relu_out[f])
+            );
         end
     endgenerate
     
@@ -324,18 +399,11 @@ module conv_layer_2 #(
             serial_busy <= 1'b0;
             serial_busy_d <= 1'b0;
             ser_step <= 6'd0;
-            x_count <= 8'd0;
-            y_count <= 8'd0;
-            window_valid <= 1'b0;
+            wr_row_idx <= 3'd0;
             valid_out <= 1'b0;
             
             x_out <= 8'd0;
             y_out <= 8'd0;
-            
-            // Initialize buffers and filter outputs
-            for (ii = 0; ii < OUT_CHANNELS; ii = ii + 1) begin
-                filter_outputs[ii] <= 8'd0;
-            end
             
             for (ii = 0; ii < IN_CHANNELS; ii = ii + 1) begin
                 for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
@@ -379,54 +447,61 @@ module conv_layer_2 #(
             end
             
             // Default states
-            window_valid <= 1'b0;
             valid_out <= 1'b0;
             
             // Process input data and update windows
             if (valid_in && !serial_busy) begin
-                x_count <= x_in;
-                y_count <= y_in;
-                
                 // Store incoming data in line buffer for each channel
                 for (ii = 0; ii < IN_CHANNELS; ii = ii + 1) begin
-                    line_buffer[ii][y_in % KERNEL_SIZE][x_in] <= data_in_channel[ii];
+                    line_buffer[ii][wr_row_idx][x_in] <= data_in_channel[ii];
                 end
                 
                 // Form window when we have enough data
                 if (y_in >= KERNEL_SIZE-1 && x_in >= KERNEL_SIZE-1) begin
                     for (ii = 0; ii < IN_CHANNELS; ii = ii + 1) begin
-                        for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
+                        if (x_in == KERNEL_SIZE-1) begin
                             for (kk = 0; kk < KERNEL_SIZE; kk = kk + 1) begin
-                                if (jj == KERNEL_SIZE-1 && kk == KERNEL_SIZE-1)
-                                    window[ii][jj][kk] <= data_in_channel[ii];
-                                else
-                                    window[ii][jj][kk] <= line_buffer[ii][(y_in - (KERNEL_SIZE-1) + jj) % KERNEL_SIZE][x_in - (KERNEL_SIZE-1) + kk];
+                                window[ii][0][kk] <= line_buffer[ii][row_idx_m4][kk];
+                                window[ii][1][kk] <= line_buffer[ii][row_idx_m3][kk];
+                                window[ii][2][kk] <= line_buffer[ii][row_idx_m2][kk];
+                                window[ii][3][kk] <= line_buffer[ii][row_idx_m1][kk];
                             end
+                            window[ii][4][0] <= line_buffer[ii][wr_row_idx][0];
+                            window[ii][4][1] <= line_buffer[ii][wr_row_idx][1];
+                            window[ii][4][2] <= line_buffer[ii][wr_row_idx][2];
+                            window[ii][4][3] <= line_buffer[ii][wr_row_idx][3];
+                            window[ii][4][4] <= data_in_channel[ii];
+                        end else begin
+                            for (jj = 0; jj < KERNEL_SIZE; jj = jj + 1) begin
+                                for (kk = 0; kk < KERNEL_SIZE-1; kk = kk + 1)
+                                    window[ii][jj][kk] <= window[ii][jj][kk+1];
+                            end
+
+                            window[ii][0][KERNEL_SIZE-1] <= line_buffer[ii][row_idx_m4][x_in];
+                            window[ii][1][KERNEL_SIZE-1] <= line_buffer[ii][row_idx_m3][x_in];
+                            window[ii][2][KERNEL_SIZE-1] <= line_buffer[ii][row_idx_m2][x_in];
+                            window[ii][3][KERNEL_SIZE-1] <= line_buffer[ii][row_idx_m1][x_in];
+                            window[ii][4][KERNEL_SIZE-1] <= data_in_channel[ii];
                         end
                     end
-                    window_valid <= 1'b1;
                     if (state == RUNNING) begin
                         serial_busy <= 1'b1;
                         ser_step <= 6'd0;
                     end
                 end
                 
-                // Line buffer handling
+                // Line buffer row advance when end of line reached
                 if (x_in == MAP_WIDTH-1) begin
-                    y_count <= y_count + 8'd1;
-                    
+                    if (wr_row_idx == KERNEL_SIZE-1)
+                        wr_row_idx <= 3'd0;
+                    else
+                        wr_row_idx <= wr_row_idx + 3'd1;
                 end
             end
             
             if (relu_valid_out[0]) begin
                 valid_out <= 1'b1;
                 
-                // Pack all filter outputs
-                for (ii = 0; ii < OUT_CHANNELS; ii = ii + 1) begin
-                    filter_outputs[ii] <= relu_out[ii];
-                end
-                
-                // Pack outputs into a single bus
                 for (ii = 0; ii < OUT_CHANNELS; ii = ii + 1) begin
                     data_out[((ii+1)*DATA_WIDTH)-1 -: DATA_WIDTH] <= relu_out[ii];
                 end

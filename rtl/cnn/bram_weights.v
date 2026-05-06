@@ -36,12 +36,12 @@ module bram_weights #(
         if (we_a) begin
             mem[addr_a] <= data_in_a;
         end
-        data_out_a <= mem[addr_a];
+        data_out_a <= rst ? {DATA_WIDTH{1'b0}} : mem[addr_a];
     end
     
     // Port B (Read only port for inference)
     always @(posedge clk) begin
-        data_out_b <= mem[addr_b];
+        data_out_b <= rst ? {DATA_WIDTH{1'b0}} : mem[addr_b];
     end
 
 endmodule 

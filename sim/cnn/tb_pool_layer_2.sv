@@ -52,7 +52,7 @@ module tb_pool_layer_2;
         .valid_in(valid_in),
         .data_in(data_in),
         .x_in(x_in),
-        .y_in(y_in),
+        .y_row_lsb(y_in[0]),
         .valid_out(valid_out),
         .data_out(data_out),
         .x_out(x_out),

@@ -10,20 +10,23 @@ module conv1_weight_mem #(
     parameter DATA_WIDTH = 8,
     parameter NUM_FILTERS = 6,
     parameter KERNEL_SIZE = 5,
-    parameter IN_CHANNELS = 1
+    parameter IN_CHANNELS = 1,
+    parameter FILTER_IDX_W = $clog2(NUM_FILTERS),
+    parameter IN_CH_W = (IN_CHANNELS <= 1) ? 1 : $clog2(IN_CHANNELS),
+    parameter K_IDX_W = $clog2(KERNEL_SIZE)
 )(
     input wire clk,
     input wire rst,
     
-    input wire [7:0] filter_idx,
-    input wire [7:0] in_channel,
-    input wire [7:0] kernel_row,
-    input wire [7:0] kernel_col,
+    input wire [FILTER_IDX_W-1:0] filter_idx,
+    input wire [IN_CH_W-1:0] in_channel,
+    input wire [K_IDX_W-1:0] kernel_row,
+    input wire [K_IDX_W-1:0] kernel_col,
     output wire [DATA_WIDTH-1:0] weight_out
 );
 
-    localparam ADDR_WIDTH = 8;  // ceil(log2(NUM_FILTERS * IN_CHANNELS * KERNEL_SIZE * KERNEL_SIZE))
     localparam DEPTH = NUM_FILTERS * IN_CHANNELS * KERNEL_SIZE * KERNEL_SIZE;
+    localparam ADDR_WIDTH = $clog2(DEPTH);
     
     // Address based on indices
     wire [ADDR_WIDTH-1:0] read_addr;

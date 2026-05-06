@@ -34,11 +34,9 @@ module pool_layer_1 #(
     reg [DATA_WIDTH-1:0] window_10 [0:NUM_CHANNELS-1];
     reg [DATA_WIDTH-1:0] window_11 [0:NUM_CHANNELS-1];
     
-    reg pool_valid [0:NUM_CHANNELS-1];
+    reg pool_valid;
     wire pool_valid_out [0:NUM_CHANNELS-1];
     
-    reg [8:0] x_pos;
-    reg [8:0] y_pos;
     reg [8:0] pool_x;
     reg [8:0] pool_y;
     
@@ -63,7 +61,7 @@ module pool_layer_1 #(
             max_pool_2x2 pool_unit (
                 .clk(clk),
                 .rst(rst),
-                .valid_in(pool_valid[c]),
+                .valid_in(pool_valid),
                 .data_in_00(window_00[c]),
                 .data_in_01(window_01[c]),
                 .data_in_10(window_10[c]),
@@ -78,14 +76,10 @@ module pool_layer_1 #(
     integer i, j;
     always @(posedge clk) begin
         if (rst) begin
-            x_pos <= 0;
-            y_pos <= 0;
             pool_x <= 0;
             pool_y <= 0;
             
-            for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
-                pool_valid[i] <= 0;
-            end
+            pool_valid <= 0;
             
             for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
                 for (j = 0; j < IN_WIDTH; j = j + 1) begin
@@ -95,9 +89,6 @@ module pool_layer_1 #(
             end
         end else begin
             if (valid_in) begin
-                x_pos <= x_in;
-                y_pos <= y_in;
-                
                 for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
                     buffer[i][y_in % 2][x_in] <= data_in_channel[i];
                 end
@@ -109,23 +100,18 @@ module pool_layer_1 #(
                         window_01[i] <= buffer[i][0][x_in];   // top right
                         window_10[i] <= buffer[i][1][x_in-1]; // bottom left
                         window_11[i] <= data_in_channel[i];   // bottom right (current input)
-                        
-                        pool_valid[i] <= 1;
                     end
+                    pool_valid <= 1;
                     
                     // Divide by 2
                     pool_x <= x_in >> 1;
                     pool_y <= y_in >> 1;
                     
                 end else begin
-                    for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
-                        pool_valid[i] <= 0;
-                    end
+                    pool_valid <= 0;
                 end
             end else begin
-                for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
-                    pool_valid[i] <= 0;
-                end
+                pool_valid <= 0;
             end
         end
     end

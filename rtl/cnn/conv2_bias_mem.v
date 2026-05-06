@@ -8,12 +8,13 @@
 `endif
 module conv2_bias_mem #(
     parameter DATA_WIDTH = 8,
-    parameter NUM_FILTERS = 16
+    parameter NUM_FILTERS = 16,
+    parameter FILTER_IDX_W = $clog2(NUM_FILTERS)
 )(
     input wire clk,
     input wire rst,
     
-    input wire [7:0] filter_idx,
+    input wire [FILTER_IDX_W-1:0] filter_idx,
     output wire [DATA_WIDTH-1:0] bias_out
 );
 
@@ -36,7 +37,7 @@ module conv2_bias_mem #(
         .data_out_a(),
         
         // Port B (readonly)
-        .addr_b(filter_idx[ADDR_WIDTH-1:0]),
+        .addr_b(filter_idx),
         .data_out_b(bias_out)
     );
 

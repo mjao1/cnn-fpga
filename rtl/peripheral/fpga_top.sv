@@ -12,18 +12,15 @@ module fpga_top #(
     input logic [9:0] sw,
 
     output logic [6:0] seg7,
-    output logic [3:0] an,
+    output logic [7:0] an,
     output logic [3:0] led
 );
     wire clk_sys;
-    wire rst_buf;
+    logic rst_sync_1;
+    logic rst_sync;
     IBUF clk_ibuf (
         .I (clk),
         .O (clk_sys)
-    );
-    IBUF rst_ibuf (
-        .I (rst),
-        .O (rst_buf)
     );
 
     typedef enum logic [1:0] {
@@ -36,18 +33,14 @@ module fpga_top #(
 
     logic [DATA_WIDTH-1:0] pixel_data;
     logic pixel_valid;
-    logic [9:0] pixel_addr;
+    logic [$clog2(IMG_HEIGHT)-1:0] pixel_row;
+    logic [$clog2(IMG_WIDTH)-1:0] pixel_col;
     logic [9:0] pixel_count;
     logic cnn_start;
 
     logic done;
     logic [3:0] pred_digit;
     logic [DATA_WIDTH-1:0] pred_confidence;
-
-    logic [3:0] ring_out;
-    logic [15:0] sel_in;
-    logic [3:0] sel_out;
-    logic clk_out, digsel;
 
     logic [DATA_WIDTH-1:0] image_rom [0:NUM_PIXELS*10-1];
     logic [3:0] digit_reg;
@@ -56,7 +49,12 @@ module fpga_top #(
     logic start_prev = 1'b0;
     wire start_pulse = start & ~start_prev;
     always_ff @(posedge clk_sys) begin
-        if (rst_buf) 
+        rst_sync_1 <= rst;
+        rst_sync <= rst_sync_1;
+    end
+
+    always_ff @(posedge clk_sys) begin
+        if (rst_sync) 
             start_prev <= 1'b0;
         else     
             start_prev <= start;
@@ -96,10 +94,16 @@ module fpga_top #(
     end
 
     // Status LEDs
-    assign led[0] = (state == IDLE);
-    assign led[1] = (state == LOAD);
-    assign led[2] = (state == INFERENCE);
-    assign led[3] = (state == DONE);
+    always_comb begin
+        led = 4'b0;
+        unique case (state)
+            IDLE:      led = 4'b0001;
+            LOAD:      led = 4'b0010;
+            INFERENCE: led = 4'b0100;
+            DONE:      led = 4'b1000;
+            default:   led = 4'b0;
+        endcase
+    end
 
     // CNN top
     cnn_top #(
@@ -108,42 +112,22 @@ module fpga_top #(
         .DATA_WIDTH(DATA_WIDTH)
     ) cnn (
         .clk(clk_sys),
-        .rst(rst_buf),
+        .rst(rst_sync),
         .start(cnn_start),
         .pixel_data(pixel_data),
         .pixel_valid(pixel_valid),
-        .pixel_addr(pixel_addr),
+        .pixel_row_in(pixel_row),
+        .pixel_col_in(pixel_col),
         .done(done),
         .pred_digit(pred_digit),
         .pred_confidence(pred_confidence)
     );
 
-    // 7 seg display modules
-    labCnt_clks slowit (
-        .clkin(clk_sys),
-        .greset(rst_buf),
-        .clk(clk_out),
-        .digsel(digsel),
-        .fastclk()
-    );
-
-    ring_counter rc(
-        .clk(clk_out),
-        .advance(digsel),
-        .R(ring_out)
-    );
-
-    assign sel_in = {12'd0, pred_digit};
-    assign an = ~ring_out;
-
-    selector sel(
-        .N(sel_in),
-        .sel(ring_out),
-        .H(sel_out)
-    );
+    // 7 seg display
+    assign an = 8'b11111110;
 
     hex7seg seg_display (
-        .d3(sel_out[3]), .d2(sel_out[2]), .d1(sel_out[1]), .d0(sel_out[0]),
+        .d3(pred_digit[3]), .d2(pred_digit[2]), .d1(pred_digit[1]), .d0(pred_digit[0]),
         .CA(seg7[6]),
         .CB(seg7[5]),
         .CC(seg7[4]),
@@ -155,12 +139,13 @@ module fpga_top #(
 
     // Main state machine
     always_ff @(posedge clk_sys) begin
-        if (rst_buf) begin
+        if (rst_sync) begin
             state <= IDLE;
             pixel_count <= 10'd0;
             pixel_valid <= 1'b0;
             pixel_data <= '0;
-            pixel_addr <= '0;
+            pixel_row <= '0;
+            pixel_col <= '0;
             cnn_start <= 1'b0;
             digit_reg <= 4'd0;
         end else begin
@@ -182,7 +167,8 @@ module fpga_top #(
                 LOAD: begin
                     if (pixel_count < NUM_PIXELS) begin
                         pixel_valid <= 1'b1;
-                        pixel_addr <= pixel_count;
+                        pixel_row <= pixel_count / 10'(IMG_WIDTH);
+                        pixel_col <= pixel_count % 10'(IMG_WIDTH);
                         pixel_data <= image_rom[digit_reg * NUM_PIXELS + pixel_count];
                         pixel_count <= pixel_count + 10'd1;
                     end else begin
@@ -199,9 +185,7 @@ module fpga_top #(
 
                 // Display result, return path
                 DONE: begin
-                    if (start_pulse) begin
-                        state <= IDLE;
-                    end
+                    state <= DONE;
                 end
 
                 default: state <= IDLE;
