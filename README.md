@@ -118,11 +118,11 @@ cnn-fpga/
 
 | Resource | Utilization | Available | Utilization % |
 | -------- | ----------- | --------- | ------------- |
-| LUT      | 39404       | 63400     | 62.15         |
+| LUT      | 36947       | 63400     | 58.28         |
 | LUTRAM   | 636         | 19000     | 3.35          |
-| FF       | 62441       | 126800    | 49.24         |
+| FF       | 61609       | 126800    | 48.59         |
 | BRAM     | 124.50      | 135       | 92.22         |
-| DSP      | 102         | 240       | 42.50         |
+| DSP      | 166         | 240       | 69.17         |
 | IO       | 22          | 210       | 10.48         |
 | BUFG     | 2           | 32        | 6.25          |
 
@@ -130,18 +130,18 @@ cnn-fpga/
 
 | Metric            | Setup          | Hold           |
 | ----------------- | -------------- | -------------- |
-| Worst slack       | 0.021 ns (WNS) | 0.029 ns (WHS) |
+| Worst slack       | 0.122 ns (WNS) | 0.028 ns (WHS) |
 | Total slack       | 0 ns (TNS)     | 0 ns (THS)     |
 | Failing endpoints | 0              | 0              |
-| Total endpoints   | 183535         | 183535         |
+| Total endpoints   | 183635         | 183635         |
 
 ### Power
 
 | Metric               | Value            |
 | -------------------- | ---------------- |
-| Total on-chip power  | 0.958 W          |
-| Junction temperature | 29.4 °C          |
-| Thermal margin       | 55.6 °C (12.0 W) |
+| Total on-chip power  | 0.987 W          |
+| Junction temperature | 29.5 °C          |
+| Thermal margin       | 55.5 °C (12.0 W) |
 | Effective θJA        | 4.6 °C/W         |
 
 ## Simulation
