@@ -204,6 +204,7 @@ module fc_layer_3 #(
                     if (output_idx == NUM_PARALLEL - 1) begin
                         if (current_batch == NUM_BATCHES - 1) begin
                             state <= DONE;
+                            process_ready <= 1'b0;
                         end else begin
                             current_batch <= current_batch + 4'd1;
                             current_input <= 7'd0;

@@ -125,6 +125,9 @@ module cnn_top #(
     assign pool2_valid_in = conv2_valid_out;
     
     logic flatten_complete;
+
+    wire flatten_reload;
+    assign flatten_reload = ((state == IDLE) || (state == DONE_STATE)) && start;
     
     logic [4:0] pool2_valid_count;
     logic pool2_complete;
@@ -241,6 +244,7 @@ module cnn_top #(
     ) flatten_inst (
         .clk(clk),
         .rst(rst),
+        .reload(flatten_reload),
         .valid_in(pool2_valid_out),
         .data_in(pool2_data_out),
         .valid_out(flatten_valid_out),
@@ -359,6 +363,15 @@ module cnn_top #(
                         state <= LOAD_IMAGE;
                         pixel_count <= 10'd0;
                         img_wr_pending <= 1'b0;
+                        pool1_buffer_complete <= 1'b0;
+                        pool1_buffer_count <= 8'd0;
+                        pool2_complete <= 1'b0;
+                        pool2_valid_count <= 5'd0;
+                        flatten_complete <= 1'b0;
+                        fc_count <= 4'd0;
+                        conv2_count <= 6'd0;
+                        conv2_feed_x <= 8'd0;
+                        conv2_feed_y <= 8'd0;
                     end
                 end
                 
@@ -485,10 +498,22 @@ module cnn_top #(
                 DONE_STATE: begin
                     pred_digit <= max_class_idx;
                     pred_confidence <= max_class_score;
-                    done <= 1'b1;
-                    
                     if (start) begin
-                        state <= IDLE;
+                        state <= LOAD_IMAGE;
+                        pixel_count <= 10'd0;
+                        img_wr_pending <= 1'b0;
+                        pool1_buffer_complete <= 1'b0;
+                        pool1_buffer_count <= 8'd0;
+                        pool2_complete <= 1'b0;
+                        pool2_valid_count <= 5'd0;
+                        flatten_complete <= 1'b0;
+                        fc_count <= 4'd0;
+                        conv2_count <= 6'd0;
+                        conv2_feed_x <= 8'd0;
+                        conv2_feed_y <= 8'd0;
+                        done <= 1'b0;
+                    end else begin
+                        done <= 1'b1;
                     end
                 end
                 

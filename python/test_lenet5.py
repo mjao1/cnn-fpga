@@ -351,7 +351,7 @@ def main():
     print("=" * 60)
     
     print("\nLoading test image...")
-    test_image, expected_label = load_test_image("python/test_image.txt")
+    test_image, expected_label = load_test_image("python/test_image_4.txt")
     
     print(f"Test image loaded with expected label: {expected_label}")
     

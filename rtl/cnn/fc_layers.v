@@ -186,9 +186,8 @@ module fc_layers #(
                 
                 DONE: begin
                     done_out <= 1'b1;
-                    // Stay in DONE until reset or new start signal
                     if (start) begin
-                        state <= IDLE;
+                        state <= FC1_PROC;
                         done_out <= 1'b0;
                     end
                 end

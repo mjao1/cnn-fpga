@@ -11,6 +11,7 @@ module flatten #(
 )(
     input wire clk,
     input wire rst,
+    input wire reload,
     input wire valid_in,
     input wire [(DATA_WIDTH*IN_CHANNELS)-1:0] data_in,  // Packed input from 16 channels
     output reg valid_out,
@@ -32,6 +33,12 @@ module flatten #(
     
     always @(posedge clk) begin
         if (rst) begin
+            flatten_count <= 0;
+            output_counter <= 0;
+            flatten_done <= 1'b0;
+            valid_out <= 1'b0;
+            addr_out <= 8'd0;
+        end else if (reload) begin
             flatten_count <= 0;
             output_counter <= 0;
             flatten_done <= 1'b0;

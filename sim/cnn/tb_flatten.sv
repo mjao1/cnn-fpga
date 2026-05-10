@@ -10,6 +10,7 @@ module tb_flatten;
 
     reg clk;
     reg rst;
+    reg reload;
     reg valid_in;
     reg [(DATA_WIDTH*IN_CHANNELS)-1:0] data_in;
 
@@ -33,6 +34,7 @@ module tb_flatten;
     ) dut (
         .clk(clk),
         .rst(rst),
+        .reload(reload),
         .valid_in(valid_in),
         .data_in(data_in),
         .valid_out(valid_out),
@@ -54,6 +56,7 @@ module tb_flatten;
 
     initial begin
         rst = 1;
+        reload = 0;
         valid_in = 0;
         data_in = 0;
         errors = 0;

@@ -26,6 +26,7 @@ module conv_5x5 #(
     reg [4:0] count;
     reg signed [23:0] acc;
 
+    (* use_dsp = "yes" *)
     wire signed [15:0] prod_16 = data_in * weight_in;
     wire signed [23:0] product = {{8{prod_16[15]}}, prod_16};
 

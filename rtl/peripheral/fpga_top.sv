@@ -1,16 +1,14 @@
 // Top for Xilinx FPGA implementation and control
 
 module fpga_top #(
-    parameter DATA_WIDTH = 8,
-    parameter IMG_WIDTH = 28,
-    parameter IMG_HEIGHT = 28,
-    parameter NUM_PIXELS = IMG_WIDTH * IMG_HEIGHT
+    parameter int DATA_WIDTH = 8,
+    parameter int IMG_WIDTH = 28,
+    parameter int IMG_HEIGHT = 28,
+    parameter int NUM_PIXELS = IMG_WIDTH * IMG_HEIGHT
 )(
     input logic clk,
     input logic rst,
-    input logic start,
-    input logic [9:0] sw,
-
+    input logic rx,
     output logic [6:0] seg7,
     output logic [7:0] an,
     output logic [3:0] led
@@ -24,10 +22,10 @@ module fpga_top #(
     );
 
     typedef enum logic [1:0] {
-        IDLE         = 2'd0,
-        LOAD         = 2'd1,
-        INFERENCE    = 2'd2,
-        DONE         = 2'd3
+        IDLE,
+        LOAD,
+        INFERENCE,
+        DONE
     } state_t;
     state_t state;
 
@@ -42,61 +40,34 @@ module fpga_top #(
     logic [3:0] pred_digit;
     logic [DATA_WIDTH-1:0] pred_confidence;
 
-    logic [DATA_WIDTH-1:0] image_rom [0:NUM_PIXELS*10-1];
-    logic [3:0] digit_reg;
+    logic frame_ready;
+    logic frame_ack;
+    logic [9:0] ram_raddr;
+    logic [DATA_WIDTH-1:0] ram_rdata;
 
-    // Start button edge detector
-    logic start_prev = 1'b0;
-    wire start_pulse = start & ~start_prev;
+    uart_image_loader #(
+        .IMG_BYTES(NUM_PIXELS),
+        .BAUD_DIV(868)
+    ) u_loader (
+        .clk(clk_sys),
+        .rst(rst_sync),
+        .rx(rx),
+        .frame_ready(frame_ready),
+        .frame_ack(frame_ack),
+        .ram_rdata(ram_rdata),
+        .ram_raddr(ram_raddr)
+    );
+
+    assign ram_raddr = (state == LOAD) ? pixel_count[9:0] : 10'd0;
+
     always_ff @(posedge clk_sys) begin
         rst_sync_1 <= rst;
         rst_sync <= rst_sync_1;
     end
 
-    always_ff @(posedge clk_sys) begin
-        if (rst_sync) 
-            start_prev <= 1'b0;
-        else     
-            start_prev <= start;
-    end
-
-    // Switch decode
-    logic [3:0] sw_digit;
-    always_comb begin
-        sw_digit = 4'd0;
-        case (1'b1)
-            sw[0]: sw_digit = 4'd0;
-            sw[1]: sw_digit = 4'd1;
-            sw[2]: sw_digit = 4'd2;
-            sw[3]: sw_digit = 4'd3;
-            sw[4]: sw_digit = 4'd4;
-            sw[5]: sw_digit = 4'd5;
-            sw[6]: sw_digit = 4'd6;
-            sw[7]: sw_digit = 4'd7;
-            sw[8]: sw_digit = 4'd8;
-            sw[9]: sw_digit = 4'd9;
-            default: sw_digit = 4'd0;
-        endcase
-    end
-
-    // Load test images into ROM
-    initial begin
-        $readmemh("test_image_0.mem", image_rom, 0, 783);
-        $readmemh("test_image_1.mem", image_rom, 784, 1567);
-        $readmemh("test_image_2.mem", image_rom, 1568, 2351);
-        $readmemh("test_image_3.mem", image_rom, 2352, 3135);
-        $readmemh("test_image_4.mem", image_rom, 3136, 3919);
-        $readmemh("test_image_5.mem", image_rom, 3920, 4703);
-        $readmemh("test_image_6.mem", image_rom, 4704, 5487);
-        $readmemh("test_image_7.mem", image_rom, 5488, 6271);
-        $readmemh("test_image_8.mem", image_rom, 6272, 7055);
-        $readmemh("test_image_9.mem", image_rom, 7056, 7839);
-    end
-
-    // Status LEDs
     always_comb begin
         led = 4'b0;
-        unique case (state)
+        case (state)
             IDLE:      led = 4'b0001;
             LOAD:      led = 4'b0010;
             INFERENCE: led = 4'b0100;
@@ -147,45 +118,42 @@ module fpga_top #(
             pixel_row <= '0;
             pixel_col <= '0;
             cnn_start <= 1'b0;
-            digit_reg <= 4'd0;
+            frame_ack <= 1'b0;
         end else begin
             cnn_start <= 1'b0;
             pixel_valid <= 1'b0;
+            frame_ack <= 1'b0;
 
             case (state)
-                // Wait for image selection and start
                 IDLE: begin
                     pixel_count <= 10'd0;
-                    if (|sw && (sw & (sw - 10'd1)) == 10'd0 && start_pulse) begin
-                        digit_reg <= sw_digit;
+                    if (frame_ready) begin
                         cnn_start <= 1'b1;
                         state <= LOAD;
                     end
                 end
 
-                // Feed image pixels from ROM
                 LOAD: begin
                     if (pixel_count < NUM_PIXELS) begin
                         pixel_valid <= 1'b1;
                         pixel_row <= pixel_count / 10'(IMG_WIDTH);
                         pixel_col <= pixel_count % 10'(IMG_WIDTH);
-                        pixel_data <= image_rom[digit_reg * NUM_PIXELS + pixel_count];
+                        pixel_data <= ram_rdata;
                         pixel_count <= pixel_count + 10'd1;
                     end else begin
+                        frame_ack <= 1'b1;
                         state <= INFERENCE;
                     end
                 end
 
                 // Wait for CNN process
                 INFERENCE: begin
-                    if (done) begin
+                    if (done)
                         state <= DONE;
-                    end
                 end
 
-                // Display result, return path
                 DONE: begin
-                    state <= DONE;
+                    state <= IDLE;
                 end
 
                 default: state <= IDLE;

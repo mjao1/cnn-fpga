@@ -34,6 +34,38 @@ The implementation follows the LeNet-5 architecture:
 - **FC2**: 120 → 84 neurons
 - **FC3**: 84 → 10 neurons (digit classification)
 
+## FPGA demo (Nexys A7-100T, `xc7a100tcsg324-1`)
+
+Live inference: Draw a digit, send it over the board’s USB-UART bridge, and read the classification on the FPGA 7-segment display.
+
+<p align="center">
+  <img src="assets/cnn-fpga-image-sender-5.png" height="500" alt="Python Image Sender">
+  <img src="assets/cnn-fpga-result-display-5.png" height="500" alt="FPGA Result Display">
+</p>
+
+### Requirements
+
+- USB cable from PC to the Nexys UART/programming port for FPGA RX line
+- Python 3 with `numpy` and `pyserial`
+- Tkinter for GUI
+- Run GUI from an environment that sees the FPGA USB COM port (e.g. Powershell for Windows)
+
+### How to demo
+
+1. Program the FPGA with `fpga_top.bit`
+2. Install requirements with `pip install -r python/requirements.txt`
+3. From repo root:
+
+   ```bash
+   python python/test_fpga.py
+   ```
+
+4. Enter the FPGA COM port (or **Refresh ports**)
+5. Draw a digit on the 28×28 grid
+6. Press **Send**
+
+The predicted class displays on the board’s 7-segment display.
+
 ## Project Structure
 
 ```
@@ -70,8 +102,10 @@ cnn-fpga/
 
 ### Peripheral Components
 
-- **fpga_top**: Board top level (Nexys A7-100T) with primary clock IBUF, reset/start synchronizers, wraps cnn_top with a demo ROM/FSM, switch decode, LED state encoding, and 7-segment drive
+- **fpga_top**: Board top level (Nexys A7-100T) with primary clock IBUF, reset/start synchronizers, wraps `cnn_top` with `uart_image_loader`, FSM feeds one frame per inference, LED state encoding, and 7-segment drive
 - **hex7seg**: Hex digit (0–F) to 7-segment segment lines (CA–CG)
+- **uart_rx**: 8N1 UART receiver with parameterized baud divider, byte `valid` pulse per character
+- **uart_image_loader**: Wraps `uart_rx`and stores `IMG_BYTES` (784) into on-chip RAM, asserts `frame_ready` when full
 
 ### Weight Management
 
@@ -85,51 +119,31 @@ cnn-fpga/
 
 | Resource | Utilization | Available | Utilization % |
 | -------- | ----------- | --------- | ------------- |
-| LUT      | 46339       | 63400     | 73.09         |
-| LUTRAM   | 972         | 19000     | 5.12          |
-| FF       | 61912       | 126800    | 48.83         |
-| BRAM     | 125         | 135       | 92.59         |
-| IO       | 32          | 210       | 15.24         |
+| LUT      | 39404       | 63400     | 62.15         |
+| LUTRAM   | 636         | 19000     | 3.35          |
+| FF       | 62441       | 126800    | 49.24         |
+| BRAM     | 124.50      | 135       | 92.22         |
+| DSP      | 102         | 240       | 42.50         |
+| IO       | 22          | 210       | 10.48         |
 | BUFG     | 2           | 32        | 6.25          |
 
 ### Timing (100 MHz clk)
 
 | Metric            | Setup          | Hold           |
 | ----------------- | -------------- | -------------- |
-| Worst slack       | 0.049 ns (WNS) | 0.029 ns (WHS) |
+| Worst slack       | 0.021 ns (WNS) | 0.029 ns (WHS) |
 | Total slack       | 0 ns (TNS)     | 0 ns (THS)     |
 | Failing endpoints | 0              | 0              |
-| Total endpoints   | 182440         | 182440         |
+| Total endpoints   | 183535         | 183535         |
 
 ### Power
 
 | Metric               | Value            |
 | -------------------- | ---------------- |
-| Total on-chip power  | 1.022 W          |
-| Junction temperature | 29.7 °C          |
-| Thermal margin       | 55.3 °C (12.0 W) |
+| Total on-chip power  | 0.958 W          |
+| Junction temperature | 29.4 °C          |
+| Thermal margin       | 55.6 °C (12.0 W) |
 | Effective θJA        | 4.6 °C/W         |
-
-## FPGA demo (Nexys A7-100T, `xc7a100tcsg324-1`)
-
-`rtl/peripheral/fpga_top.sv` is the board top. It embeds ten MNIST images in ROM, streams the chosen image into `cnn_top`, and shows status on LEDs and the predicted class on the 7-segment display after inference.
-
-### Flow
-
-1. **`IDLE`**: Select a stored test image with the switches, then press `start`
-2. **`LOAD`**: Streams 28×28 pixels from on-chip ROM into the CNN
-3. **`INFERENCE`**: Runs CNN forward pass
-4. **`DONE`**: Predicted digit appears on the hex display
-
-**Board I/O** (see `constraints/constraints.xdc`)
-
-| Signal     | Nexys A7  | Role                                                                       |
-| ---------- | --------- | -------------------------------------------------------------------------- |
-| `sw[9:0]`  | SW0-SW9   | One-hot: digit select: `sw[i]` chooses the ROM image (0-9)                 |
-| `start`    | BTND      | In `IDLE`, starts run                                                      |
-| `rst`      | BTNC      | Reset                                                                      |
-| `led[3:0]` | LED0-LED3 | FSM state: `IDLE` = LED0, `LOAD` = LED1, `INFERENCE` = LED2, `DONE` = LED3 |
-| `seg7`     | 7-segment | Display predicted digit (0–9) after `DONE`                                 |
 
 ## Simulation
 
@@ -230,11 +244,3 @@ python python/generate_bulk_test_images.py
 
 Single test images are saved to `sim/cnn/test_images/` in both `.txt` (raw pixel values) and `.mem` (Q1.7 quantized hex) formats.
 Accuracy test images are saved to `sim/cnn/test_images_bulk/` in `.mem` format.
-
-## Yosys Generic Synthesis
-
-```bash
-yosys synth.ys
-```
-
-Output: synth_cnn_top.v
