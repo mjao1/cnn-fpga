@@ -39,8 +39,7 @@ The implementation follows the LeNet-5 architecture:
 Live inference: Draw a digit, send it over the board’s USB-UART bridge, and read the classification on the FPGA 7-segment display.
 
 <p align="center">
-  <img src="assets/cnn-fpga-image-sender-5.png" height="500" alt="Python Image Sender">
-  <img src="assets/cnn-fpga-result-display-5.png" height="500" alt="FPGA Result Display">
+  <img src="assets/cnn-fpga-image-sender-5.png" height="400" alt="Python Image Sender"> <img src="assets/cnn-fpga-result-display-5.png" height="400" alt="FPGA Result Display">
 </p>
 
 ### Requirements
