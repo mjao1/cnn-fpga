@@ -42,18 +42,11 @@ Live inference: Draw a digit, send it over the board’s USB-UART bridge, and re
   <img src="assets/cnn-fpga-image-sender-5.png" height="400" alt="Python Image Sender"> <img src="assets/cnn-fpga-result-display-5.png" height="400" alt="FPGA Result Display">
 </p>
 
-### Requirements
-
-- USB cable from PC to the Nexys UART/programming port for FPGA RX line
-- Python 3 with `numpy` and `pyserial`
-- Tkinter for GUI
-- Run GUI from an environment that sees the FPGA USB COM port (e.g. Powershell for Windows)
-
 ### How to demo
 
 1. Program the FPGA with `fpga_top.bit`
 2. Install requirements with `pip install -r python/requirements.txt`
-3. From repo root:
+3. From repo root in an environment that sees the FPGA USB COM port (e.g. Powershell for Windows):
 
    ```bash
    python python/test_fpga.py
