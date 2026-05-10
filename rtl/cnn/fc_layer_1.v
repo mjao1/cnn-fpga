@@ -42,10 +42,10 @@ module fc_layer_1 #(
     reg [7:0] compute_input_idx;  // Delayed index for pipelined MAC
     reg [$clog2(NUM_PARALLEL)-1:0] output_idx;
 
-    // Input buffer
     reg [DATA_WIDTH-1:0] input_buffer [0:IN_FEATURES-1];
     reg [IN_FEATURES-1:0] input_valid;
 
+    (* use_dsp = "yes" *)
     reg signed [23:0] accumulator [0:NUM_PARALLEL-1];
     reg signed [15:0] partial_product [0:NUM_PARALLEL-1];
 

@@ -44,6 +44,7 @@ module fc_layer_3 #(
     reg [DATA_WIDTH-1:0] input_buffer [0:IN_FEATURES-1];
     reg [IN_FEATURES-1:0] input_valid;
 
+    (* use_dsp = "yes" *)
     reg signed [23:0] accumulator [0:NUM_PARALLEL-1];
     reg signed [15:0] partial_product [0:NUM_PARALLEL-1];
 
