@@ -18,7 +18,8 @@ except ImportError:
 DEFAULT_BAUD = 115200
 GRID = 28
 CELL_PX = 14
-BRUSH_SIGMA = 0.55
+BRUSH_SIGMA = 0.4
+BRUSH_FADE_MULTIPLIER = 2.5
 
 
 def quantize_to_uart_bytes(image: np.ndarray) -> bytes:
@@ -137,20 +138,18 @@ def run_gui(port_hint: str = "") -> None:
         def _apply_brush_segment(self, r0: int, c0: int, r1: int, c1: int) -> None:
             x0, y0 = c0 + 0.5, r0 + 0.5
             x1, y1 = c1 + 0.5, r1 + 0.5
-            margin = int(math.ceil(self._brush_sigma * 4))
+            fade_sigma = self._brush_sigma * BRUSH_FADE_MULTIPLIER
+            margin = int(math.ceil(fade_sigma * 3.5))
             r_lo = max(0, min(r0, r1) - margin)
             r_hi = min(GRID - 1, max(r0, r1) + margin)
             c_lo = max(0, min(c0, c1) - margin)
             c_hi = min(GRID - 1, max(c0, c1) + margin)
-            inv_two_s2 = 1.0 / (2.0 * self._brush_sigma * self._brush_sigma)
-            cutoff_sq = (self._brush_sigma * 3.5) ** 2
+            inv_two_sigma = 1.0 / (2.0 * fade_sigma * fade_sigma)
             for r in range(r_lo, r_hi + 1):
                 for c in range(c_lo, c_hi + 1):
                     px, py = c + 0.5, r + 0.5
                     d_sq = _dist_sq_point_segment(px, py, x0, y0, x1, y1)
-                    if d_sq > cutoff_sq:
-                        continue
-                    v = 255.0 * math.exp(-d_sq * inv_two_s2)
+                    v = 255.0 * math.exp(-d_sq * inv_two_sigma)
                     if v > self.grid[r, c]:
                         self.grid[r, c] = v
                         self._set_cell_visual(r, c)
@@ -159,7 +158,8 @@ def run_gui(port_hint: str = "") -> None:
             vi = int(round(self.grid[r, c]))
             vi = max(0, min(255, vi))
             fill = f"#{vi:02x}{vi:02x}{vi:02x}"
-            self.canvas.itemconfig(self.rects[r][c], fill=fill, outline=fill)
+            outline = "#222" if vi == 0 else fill
+            self.canvas.itemconfig(self.rects[r][c], fill=fill, outline=outline)
 
         def _clear(self) -> None:
             self._prev = None
