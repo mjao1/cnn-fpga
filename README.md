@@ -56,7 +56,7 @@ Live inference: Draw a digit, send it over the board’s USB-UART bridge, and re
 5. Draw a digit on the 28×28 grid
 6. Press **Send**
 
-Once the TX LED turns off, the predicted class displays on the board’s 7-segment display.
+Once the TX LED turns off, inference begins and the predicted class displays on the board’s 7-segment display.
 
 ## Project Structure
 
