@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 import sys
+import time
 
 import numpy as np
 
@@ -20,6 +21,7 @@ GRID = 28
 CELL_PX = 14
 BRUSH_SIGMA = 0.4
 BRUSH_FADE_MULTIPLIER = 2.5
+MAC_SEND_DELAY_S = 0.0001
 
 
 def quantize_to_uart_bytes(image: np.ndarray) -> bytes:
@@ -56,9 +58,25 @@ def _dist_sq_point_segment(
 def send_frame(port: str, baud: int, payload: bytes) -> None:
     if len(payload) != GRID * GRID:
         raise ValueError(f"expected {GRID * GRID} bytes, got {len(payload)}")
-    with serial.Serial(port, baud, timeout=2.0) as ser:
+    ser_kwargs = {}
+    if sys.platform == "darwin":
+        ser_kwargs = {
+            "xonxoff": False,
+            "rtscts": False,
+            "dsrdtr": False,
+        }
+    with serial.Serial(port, baud, timeout=2.0, **ser_kwargs) as ser:
+        if sys.platform == "darwin":
+            ser.setDTR(False)
+            ser.setRTS(False)
+            time.sleep(0.05)
         ser.reset_input_buffer()
-        ser.write(payload)
+        if sys.platform == "darwin":
+            for b in payload:
+                ser.write(bytes([b]))
+                time.sleep(MAC_SEND_DELAY_S)
+        else:
+            ser.write(payload)
         ser.flush()
 
 
