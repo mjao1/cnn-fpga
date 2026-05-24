@@ -89,6 +89,7 @@ module conv_layer_1 #(
     wire signed [DATA_WIDTH-1:0] conv_out [0:NUM_FILTERS-1];
     
     wire signed [DATA_WIDTH-1:0] window_flat [0:KERNEL_SIZE*KERNEL_SIZE-1];
+    wire [(DATA_WIDTH*KERNEL_SIZE*KERNEL_SIZE)-1:0] window_flat_packed;
     
     integer ii, jj, kk;
     
@@ -215,6 +216,13 @@ module conv_layer_1 #(
             end
         end
     endgenerate
+
+    generate
+        genvar gp;
+        for (gp = 0; gp < KERNEL_SIZE*KERNEL_SIZE; gp = gp + 1) begin : pack_window
+            assign window_flat_packed[((gp + 1) * DATA_WIDTH) - 1 -: DATA_WIDTH] = window_flat[gp];
+        end
+    endgenerate
     
     reg conv_window_valid_q;
     always @(posedge clk) begin
@@ -230,9 +238,14 @@ module conv_layer_1 #(
         for (gf = 0; gf < NUM_FILTERS; gf = gf + 1) begin : conv_units
             // Create local wires for weight array
             wire signed [DATA_WIDTH-1:0] local_weight [0:KERNEL_SIZE*KERNEL_SIZE-1];
+            wire [(DATA_WIDTH*KERNEL_SIZE*KERNEL_SIZE)-1:0] local_weight_packed;
             genvar gw;
             for (gw = 0; gw < KERNEL_SIZE*KERNEL_SIZE; gw = gw + 1) begin : weight_assign
                 assign local_weight[gw] = weight[gf][gw];
+            end
+            genvar gw_pack;
+            for (gw_pack = 0; gw_pack < KERNEL_SIZE*KERNEL_SIZE; gw_pack = gw_pack + 1) begin : weight_pack
+                assign local_weight_packed[((gw_pack + 1) * DATA_WIDTH) - 1 -: DATA_WIDTH] = local_weight[gw_pack];
             end
             
             conv_5x5 #(
@@ -241,8 +254,8 @@ module conv_layer_1 #(
                 .clk(clk),
                 .rst(rst),
                 .valid_in(conv_window_valid_q),
-                .data_in(window_flat),
-                .weight_in(local_weight),
+                .data_in(window_flat_packed),
+                .weight_in(local_weight_packed),
                 .bias_in(bias[gf]),
                 .valid_out(valid_conv[gf]),
                 .data_out(conv_out[gf]),

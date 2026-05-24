@@ -299,10 +299,17 @@ module conv_layer_2 #(
             for (chan = 0; chan < IN_CHANNELS; chan = chan + 1) begin: channel_convs
                 wire signed [DATA_WIDTH-1:0] local_data [0:KERNEL_SIZE*KERNEL_SIZE-1];
                 wire signed [DATA_WIDTH-1:0] local_weight [0:KERNEL_SIZE*KERNEL_SIZE-1];
+                wire [(DATA_WIDTH*KERNEL_SIZE*KERNEL_SIZE)-1:0] local_data_packed;
+                wire [(DATA_WIDTH*KERNEL_SIZE*KERNEL_SIZE)-1:0] local_weight_packed;
                 genvar gw;
                 for (gw = 0; gw < KERNEL_SIZE*KERNEL_SIZE; gw = gw + 1) begin : array_assign
                     assign local_data[gw] = window_flat[chan][gw];
                     assign local_weight[gw] = weight[f][chan][gw];
+                end
+                genvar gw_pack;
+                for (gw_pack = 0; gw_pack < KERNEL_SIZE*KERNEL_SIZE; gw_pack = gw_pack + 1) begin : array_pack
+                    assign local_data_packed[((gw_pack + 1) * DATA_WIDTH) - 1 -: DATA_WIDTH] = local_data[gw_pack];
+                    assign local_weight_packed[((gw_pack + 1) * DATA_WIDTH) - 1 -: DATA_WIDTH] = local_weight[gw_pack];
                 end
                 
                 conv_5x5 #(
@@ -311,8 +318,8 @@ module conv_layer_2 #(
                     .clk(clk),
                     .rst(rst),
                     .valid_in(conv_window_valid_q),
-                    .data_in(local_data),
-                    .weight_in(local_weight),
+                    .data_in(local_data_packed),
+                    .weight_in(local_weight_packed),
                     .bias_in(8'd0),
                     .valid_out(conv_valid[chan]),
                     .data_out(conv_result[chan]),

@@ -6,8 +6,8 @@ module tb_conv_5x5();
     reg clk;
     reg rst;
     reg valid_in;
-    reg signed [7:0] data_in [0:24];
-    reg signed [7:0] weight_in [0:24];
+    reg [199:0] data_in;
+    reg [199:0] weight_in;
     reg signed [7:0] bias_in;
 
     wire valid_out;
@@ -59,8 +59,8 @@ module tb_conv_5x5();
     task run_parallel_conv;
         begin
             for (k = 0; k < 25; k = k + 1) begin
-                data_in[k] = data_arr[k];
-                weight_in[k] = weight_arr[k];
+                data_in[((k + 1) * 8) - 1 -: 8] = data_arr[k];
+                weight_in[((k + 1) * 8) - 1 -: 8] = weight_arr[k];
             end
             bias_in = bias_val;
             valid_in = 0;
@@ -102,8 +102,8 @@ module tb_conv_5x5();
         pass_count = 0;
         fail_count = 0;
         for (k = 0; k < 25; k = k + 1) begin
-            data_in[k] = 8'sd0;
-            weight_in[k] = 8'sd0;
+            data_in[((k + 1) * 8) - 1 -: 8] = 8'sd0;
+            weight_in[((k + 1) * 8) - 1 -: 8] = 8'sd0;
         end
         bias_in = 8'sd0;
         bias_val = 0;

@@ -10,14 +10,24 @@ module conv_5x5 #(
     input wire clk,
     input wire rst,
     input wire valid_in,
-    input wire signed [7:0] data_in [0:24],
-    input wire signed [7:0] weight_in [0:24],
+    input wire [199:0] data_in,
+    input wire [199:0] weight_in,
     input wire signed [7:0] bias_in,
     output reg valid_out,
     output reg signed [7:0] data_out,
     output reg signed [23:0] raw_sum
 );
 
+    wire signed [7:0] data_in_arr [0:24];
+    wire signed [7:0] weight_in_arr [0:24];
+
+    genvar di;
+    generate
+        for (di = 0; di < 25; di = di + 1) begin : unpack_inputs
+            assign data_in_arr[di] = data_in[((di + 1) * 8) - 1 -: 8];
+            assign weight_in_arr[di] = weight_in[((di + 1) * 8) - 1 -: 8];
+        end
+    endgenerate
 
     (* use_dsp = "yes" *)
     wire signed [15:0] products [0:24];
@@ -25,7 +35,7 @@ module conv_5x5 #(
     genvar i;
     generate
         for (i = 0; i < 25; i = i + 1) begin : mult_array
-            assign products[i] = data_in[i] * weight_in[i];
+            assign products[i] = data_in_arr[i] * weight_in_arr[i];
         end
     endgenerate
 
