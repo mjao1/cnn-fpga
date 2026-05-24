@@ -5,11 +5,12 @@ module tb_conv_5x5();
 
     reg clk;
     reg rst;
-    reg start;
-    reg signed [7:0] data_in;
-    reg signed [7:0] weight_in;
+    reg valid_in;
+    reg signed [7:0] data_in [0:24];
+    reg signed [7:0] weight_in [0:24];
+    reg signed [7:0] bias_in;
 
-    wire done;
+    wire valid_out;
     wire signed [7:0] data_out;
     wire signed [23:0] raw_sum;
 
@@ -27,10 +28,11 @@ module tb_conv_5x5();
     ) dut (
         .clk(clk),
         .rst(rst),
-        .start(start),
+        .valid_in(valid_in),
         .data_in(data_in),
         .weight_in(weight_in),
-        .done(done),
+        .bias_in(bias_in),
+        .valid_out(valid_out),
         .data_out(data_out),
         .raw_sum(raw_sum)
     );
@@ -54,27 +56,20 @@ module tb_conv_5x5();
         end
     endfunction
 
-    task run_serial_conv;
+    task run_parallel_conv;
         begin
-            start = 0;
-            data_in = 0;
-            weight_in = 0;
-            @(posedge clk);
-            #1;
-            start = 1;
-            @(posedge clk);
-            #1;
-            start = 0;
             for (k = 0; k < 25; k = k + 1) begin
-                data_in = data_arr[k];
-                weight_in = weight_arr[k];
-                @(posedge clk);
-                #1;
+                data_in[k] = data_arr[k];
+                weight_in[k] = weight_arr[k];
             end
-            weight_in = bias_val;
-            data_in = 0;
+            bias_in = bias_val;
+            valid_in = 0;
             @(posedge clk);
             #1;
+            valid_in = 1;
+            @(posedge clk);
+            #1;
+            valid_in = 0;
         end
     endtask
 
@@ -82,27 +77,20 @@ module tb_conv_5x5();
         input integer test_id;
         input signed [7:0] exp_out;
         integer i;
-        reg found;
         begin
             test_num = test_id;
-            found = 0;
-            run_serial_conv();
-            for (i = 0; i < 6; i = i + 1) begin
-                @(posedge clk);
-                #1;
-                if (done) begin
-                    found = 1;
-                    if (data_out == exp_out) begin
-                        $display("Test %0d PASS: Output=%0d, Expected=%0d", test_num, data_out, exp_out);
-                        pass_count = pass_count + 1;
-                    end else begin
-                        $display("Test %0d FAIL: Output=%0d, Expected=%0d (raw_sum=%0d)", test_num, data_out, exp_out, raw_sum);
-                        fail_count = fail_count + 1;
-                    end
+            run_parallel_conv();
+            #1;
+            if (valid_out) begin
+                if (data_out == exp_out) begin
+                    $display("Test %0d PASS: Output=%0d, Expected=%0d", test_num, data_out, exp_out);
+                    pass_count = pass_count + 1;
+                end else begin
+                    $display("Test %0d FAIL: Output=%0d, Expected=%0d (raw_sum=%0d)", test_num, data_out, exp_out, raw_sum);
+                    fail_count = fail_count + 1;
                 end
-            end
-            if (!found) begin
-                $display("Test %0d FAIL: done never asserted", test_num);
+            end else begin
+                $display("Test %0d FAIL: valid_out not asserted", test_num);
                 fail_count = fail_count + 1;
             end
         end
@@ -110,11 +98,14 @@ module tb_conv_5x5();
 
     initial begin
         rst = 1;
-        start = 0;
+        valid_in = 0;
         pass_count = 0;
         fail_count = 0;
-        data_in = 0;
-        weight_in = 0;
+        for (k = 0; k < 25; k = k + 1) begin
+            data_in[k] = 8'sd0;
+            weight_in[k] = 8'sd0;
+        end
+        bias_in = 8'sd0;
         bias_val = 0;
         #20;
         rst = 0;

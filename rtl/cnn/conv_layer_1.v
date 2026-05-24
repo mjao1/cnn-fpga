@@ -40,7 +40,6 @@ module conv_layer_1 #(
     reg signed [DATA_WIDTH-1:0] weight [0:NUM_FILTERS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
     reg signed [DATA_WIDTH-1:0] bias [0:NUM_FILTERS-1];
     
-    reg serial_busy;
     reg [2:0] row_idx_m1;
     reg [2:0] row_idx_m2;
     reg [2:0] row_idx_m3;
@@ -83,9 +82,8 @@ module conv_layer_1 #(
         endcase
     end
 
-    reg serial_busy_d;
-    reg [5:0] ser_step;
-    assign busy = serial_busy;
+    reg conv_window_valid;
+    assign busy = conv_window_valid;
     
     wire valid_conv [0:NUM_FILTERS-1];
     wire signed [DATA_WIDTH-1:0] conv_out [0:NUM_FILTERS-1];
@@ -218,53 +216,35 @@ module conv_layer_1 #(
         end
     endgenerate
     
-    wire conv_start;
-    wire signed [DATA_WIDTH-1:0] conv_data_in;
-    wire signed [DATA_WIDTH-1:0] conv_weight_in [0:NUM_FILTERS-1];
-
-    assign conv_start = serial_busy & ~serial_busy_d;
-    assign conv_data_in = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? window_flat[ser_step - 6'd1] : 8'sd0;
-    
-    genvar gwf;
-    generate
-        for (gwf = 0; gwf < NUM_FILTERS; gwf = gwf + 1) begin : wt_mux
-            assign conv_weight_in[gwf] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? weight[gwf][ser_step - 6'd1] : (serial_busy & (ser_step == 6'd26)) ? bias[gwf] : 8'sd0;
-        end
-    endgenerate
-
-    // Pipeline mux outputs and start pulse
-    (* max_fanout = 48 *) reg conv_start_q;
-    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_data_in_q;
-    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_weight_in_q [0:NUM_FILTERS-1];
-    integer pi;
+    reg conv_window_valid_q;
     always @(posedge clk) begin
-        if (rst) begin
-            conv_start_q <= 1'b0;
-            conv_data_in_q <= 8'sd0;
-            for (pi = 0; pi < NUM_FILTERS; pi = pi + 1)
-                conv_weight_in_q[pi] <= 8'sd0;
-        end else begin
-            conv_start_q <= conv_start;
-            conv_data_in_q <= conv_data_in;
-            for (pi = 0; pi < NUM_FILTERS; pi = pi + 1)
-                conv_weight_in_q[pi] <= conv_weight_in[pi];
-        end
+        if (rst)
+            conv_window_valid_q <= 1'b0;
+        else
+            conv_window_valid_q <= conv_window_valid;
     end
 
     // Instantiate 6 convolution modules for each filter
     generate
         genvar gf;
         for (gf = 0; gf < NUM_FILTERS; gf = gf + 1) begin : conv_units
+            // Create local wires for weight array
+            wire signed [DATA_WIDTH-1:0] local_weight [0:KERNEL_SIZE*KERNEL_SIZE-1];
+            genvar gw;
+            for (gw = 0; gw < KERNEL_SIZE*KERNEL_SIZE; gw = gw + 1) begin : weight_assign
+                assign local_weight[gw] = weight[gf][gw];
+            end
+            
             conv_5x5 #(
                 .FRAC_BITS(FRAC_BITS)
             ) conv_inst (
                 .clk(clk),
                 .rst(rst),
-                .start(conv_start_q),
-                .data_in(conv_data_in_q),
-                .weight_in(conv_weight_in_q[gf]),
-
-                .done(valid_conv[gf]),
+                .valid_in(conv_window_valid_q),
+                .data_in(window_flat),
+                .weight_in(local_weight),
+                .bias_in(bias[gf]),
+                .valid_out(valid_conv[gf]),
                 .data_out(conv_out[gf]),
                 .raw_sum()
             );
@@ -290,9 +270,7 @@ module conv_layer_1 #(
     
     always @(posedge clk) begin
         if (rst) begin
-            serial_busy <= 1'b0;
-            serial_busy_d <= 1'b0;
-            ser_step <= 6'd0;
+            conv_window_valid <= 1'b0;
             wr_row_idx <= 3'd0;
             valid_out <= 1'b0;
             
@@ -320,15 +298,7 @@ module conv_layer_1 #(
             end
             
         end else begin
-            serial_busy_d <= serial_busy;
-
-            if (serial_busy) begin
-                if (ser_step == 6'd28) begin
-                    serial_busy <= 1'b0;
-                    ser_step <= 6'd0;
-                end else
-                    ser_step <= ser_step + 6'd1;
-            end
+            conv_window_valid <= 1'b0;
 
             if (valid_out) begin
                 if (x_out == OUT_WIDTH - 1) begin
@@ -365,7 +335,7 @@ module conv_layer_1 #(
             end
 
             // Process input data and update windows
-            if (valid_in && !serial_busy) begin
+            if (valid_in && !conv_window_valid) begin
                 if (y_in >= KERNEL_SIZE - 1 && x_in >= KERNEL_SIZE - 1) begin
 
                     // Form window when we have enough data
@@ -393,8 +363,7 @@ module conv_layer_1 #(
                         window[3][KERNEL_SIZE-1] <= line_buffer[row_idx_m1][x_in];
                         window[4][KERNEL_SIZE-1] <= data_in;
                     end
-                    serial_busy <= 1'b1;
-                    ser_step <= 6'd0;
+                    conv_window_valid <= 1'b1;
                 end
             end
         end

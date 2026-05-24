@@ -38,6 +38,7 @@ module conv_layer_2 #(
     reg signed [DATA_WIDTH-1:0] weight [0:OUT_CHANNELS-1][0:IN_CHANNELS-1][0:KERNEL_SIZE*KERNEL_SIZE-1];
     reg signed [DATA_WIDTH-1:0] bias [0:OUT_CHANNELS-1];
     
+    reg conv_window_valid;
     reg [2:0] wr_row_idx;
     reg [2:0] row_idx_m1;
     reg [2:0] row_idx_m2;
@@ -79,11 +80,7 @@ module conv_layer_2 #(
         endcase
     end
 
-    reg serial_busy;
-    reg serial_busy_d;
-    reg [5:0] ser_step;
-
-    assign busy = serial_busy;
+    assign busy = conv_window_valid;
 
     wire valid_conv [0:OUT_CHANNELS-1];
     wire signed [DATA_WIDTH-1:0] conv_out [0:OUT_CHANNELS-1];
@@ -265,51 +262,15 @@ module conv_layer_2 #(
         end
     endgenerate
 
-    wire conv_start;
-    assign conv_start = serial_busy & ~serial_busy_d;
-
-    wire signed [DATA_WIDTH-1:0] conv_din [0:IN_CHANNELS-1];
-    genvar ldci;
-    generate
-        for (ldci = 0; ldci < IN_CHANNELS; ldci = ldci + 1) begin : din_mux
-            assign conv_din[ldci] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? window_flat[ldci][ser_step - 6'd1] : 8'sd0;
-        end
-    endgenerate
-
-    wire signed [DATA_WIDTH-1:0] conv_w_in [0:OUT_CHANNELS-1][0:IN_CHANNELS-1];
-    genvar wf, wc;
-    generate
-        for (wf = 0; wf < OUT_CHANNELS; wf = wf + 1) begin : w_row
-            for (wc = 0; wc < IN_CHANNELS; wc = wc + 1) begin : w_col
-                assign conv_w_in[wf][wc] = (serial_busy & ser_step >= 6'd1 & ser_step <= 6'd25) ? weight[wf][wc][ser_step - 6'd1] : (serial_busy & (ser_step == 6'd26)) ? 8'd0 : 8'sd0;
-            end
-        end
-    endgenerate
-
-    // Pipeline mux outputs and start pulse
-    (* max_fanout = 48 *) reg conv_start_q;
-    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_din_q [0:IN_CHANNELS-1];
-    (* max_fanout = 48 *) reg signed [DATA_WIDTH-1:0] conv_w_in_q [0:OUT_CHANNELS-1][0:IN_CHANNELS-1];
-    integer pi, pj;
+    reg conv_window_valid_q;
     always @(posedge clk) begin
-        if (rst) begin
-            conv_start_q <= 1'b0;
-            for (pi = 0; pi < IN_CHANNELS; pi = pi + 1)
-                conv_din_q[pi] <= 8'sd0;
-            for (pi = 0; pi < OUT_CHANNELS; pi = pi + 1)
-                for (pj = 0; pj < IN_CHANNELS; pj = pj + 1)
-                    conv_w_in_q[pi][pj] <= 8'sd0;
-        end else begin
-            conv_start_q <= conv_start;
-            for (pi = 0; pi < IN_CHANNELS; pi = pi + 1)
-                conv_din_q[pi] <= conv_din[pi];
-            for (pi = 0; pi < OUT_CHANNELS; pi = pi + 1)
-                for (pj = 0; pj < IN_CHANNELS; pj = pj + 1)
-                    conv_w_in_q[pi][pj] <= conv_w_in[pi][pj];
-        end
+        if (rst)
+            conv_window_valid_q <= 1'b0;
+        else
+            conv_window_valid_q <= conv_window_valid;
     end
 
-    // Instantiate 6 convolution modules for each filter
+    // Instantiate convolution modules for each filter and channel
     generate
         genvar f, chan;
         for (f = 0; f < OUT_CHANNELS; f = f + 1) begin: filter_units
@@ -336,15 +297,24 @@ module conv_layer_2 #(
             endfunction
 
             for (chan = 0; chan < IN_CHANNELS; chan = chan + 1) begin: channel_convs
+                wire signed [DATA_WIDTH-1:0] local_data [0:KERNEL_SIZE*KERNEL_SIZE-1];
+                wire signed [DATA_WIDTH-1:0] local_weight [0:KERNEL_SIZE*KERNEL_SIZE-1];
+                genvar gw;
+                for (gw = 0; gw < KERNEL_SIZE*KERNEL_SIZE; gw = gw + 1) begin : array_assign
+                    assign local_data[gw] = window_flat[chan][gw];
+                    assign local_weight[gw] = weight[f][chan][gw];
+                end
+                
                 conv_5x5 #(
                     .FRAC_BITS(FRAC_BITS)
                 ) conv_inst (
                     .clk(clk),
                     .rst(rst),
-                    .start(conv_start_q),
-                    .data_in(conv_din_q[chan]),
-                    .weight_in(conv_w_in_q[f][chan]),
-                    .done(conv_valid[chan]),
+                    .valid_in(conv_window_valid_q),
+                    .data_in(local_data),
+                    .weight_in(local_weight),
+                    .bias_in(8'd0),
+                    .valid_out(conv_valid[chan]),
                     .data_out(conv_result[chan]),
                     .raw_sum(conv_raw_sum[chan])
                 );
@@ -396,9 +366,7 @@ module conv_layer_2 #(
     // Process input data and update window
     always @(posedge clk) begin
         if (rst) begin
-            serial_busy <= 1'b0;
-            serial_busy_d <= 1'b0;
-            ser_step <= 6'd0;
+            conv_window_valid <= 1'b0;
             wr_row_idx <= 3'd0;
             valid_out <= 1'b0;
             
@@ -424,15 +392,7 @@ module conv_layer_2 #(
             data_out <= {(DATA_WIDTH*OUT_CHANNELS){1'b0}};
             
         end else begin
-            serial_busy_d <= serial_busy;
-
-            if (serial_busy) begin
-                if (ser_step == 6'd28) begin
-                    serial_busy <= 1'b0;
-                    ser_step <= 6'd0;
-                end else
-                    ser_step <= ser_step + 6'd1;
-            end
+            conv_window_valid <= 1'b0;
 
             if (valid_out) begin
                 if (x_out == OUT_WIDTH-1) begin
@@ -450,7 +410,7 @@ module conv_layer_2 #(
             valid_out <= 1'b0;
             
             // Process input data and update windows
-            if (valid_in && !serial_busy) begin
+            if (valid_in && !conv_window_valid) begin
                 // Store incoming data in line buffer for each channel
                 for (ii = 0; ii < IN_CHANNELS; ii = ii + 1) begin
                     line_buffer[ii][wr_row_idx][x_in] <= data_in_channel[ii];
@@ -485,8 +445,7 @@ module conv_layer_2 #(
                         end
                     end
                     if (state == RUNNING) begin
-                        serial_busy <= 1'b1;
-                        ser_step <= 6'd0;
+                        conv_window_valid <= 1'b1;
                     end
                 end
                 

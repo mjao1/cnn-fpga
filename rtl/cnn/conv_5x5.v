@@ -2,35 +2,76 @@
 // Fixed-Point Format: Q1.7
 // Input: (data, weights, bias) 8-bit signed, Q1.7 format
 // Output: 8-bit signed, Q1.7 format
-// Serial: 25 data/weight pairs, one pair per cycle, then bias on weight_in, then result
+// Parallel: 25 data/weight pairs in one cycle using tree adder
 
 module conv_5x5 #(
     parameter integer FRAC_BITS = 7
 ) (
     input wire clk,
     input wire rst,
-    input wire start,
-    input wire signed [7:0] data_in,
-    input wire signed [7:0] weight_in,
-    output reg done,
+    input wire valid_in,
+    input wire signed [7:0] data_in [0:24],
+    input wire signed [7:0] weight_in [0:24],
+    input wire signed [7:0] bias_in,
+    output reg valid_out,
     output reg signed [7:0] data_out,
     output reg signed [23:0] raw_sum
 );
 
-    localparam STATE_IDLE       = 2'd0;
-    localparam STATE_ACCUMULATE = 2'd1;
-    localparam STATE_BIAS       = 2'd2;
-    localparam STATE_DONE       = 2'd3;
-
-    reg [1:0] state;
-    reg [4:0] count;
-    reg signed [23:0] acc;
 
     (* use_dsp = "yes" *)
-    wire signed [15:0] prod_16 = data_in * weight_in;
-    wire signed [23:0] product = {{8{prod_16[15]}}, prod_16};
+    wire signed [15:0] products [0:24];
+    
+    genvar i;
+    generate
+        for (i = 0; i < 25; i = i + 1) begin : mult_array
+            assign products[i] = data_in[i] * weight_in[i];
+        end
+    endgenerate
 
-    wire signed [23:0] bias_scaled = $signed({{16{weight_in[7]}}, weight_in}) << FRAC_BITS;
+    // Tree adder
+    wire signed [16:0] sum_l1 [0:12];
+    assign sum_l1[0]  = $signed(products[0])  + $signed(products[1]);
+    assign sum_l1[1]  = $signed(products[2])  + $signed(products[3]);
+    assign sum_l1[2]  = $signed(products[4])  + $signed(products[5]);
+    assign sum_l1[3]  = $signed(products[6])  + $signed(products[7]);
+    assign sum_l1[4]  = $signed(products[8])  + $signed(products[9]);
+    assign sum_l1[5]  = $signed(products[10]) + $signed(products[11]);
+    assign sum_l1[6]  = $signed(products[12]) + $signed(products[13]);
+    assign sum_l1[7]  = $signed(products[14]) + $signed(products[15]);
+    assign sum_l1[8]  = $signed(products[16]) + $signed(products[17]);
+    assign sum_l1[9]  = $signed(products[18]) + $signed(products[19]);
+    assign sum_l1[10] = $signed(products[20]) + $signed(products[21]);
+    assign sum_l1[11] = $signed(products[22]) + $signed(products[23]);
+    assign sum_l1[12] = $signed(products[24]);
+
+    wire signed [17:0] sum_l2 [0:6];
+    assign sum_l2[0] = $signed(sum_l1[0])  + $signed(sum_l1[1]);
+    assign sum_l2[1] = $signed(sum_l1[2])  + $signed(sum_l1[3]);
+    assign sum_l2[2] = $signed(sum_l1[4])  + $signed(sum_l1[5]);
+    assign sum_l2[3] = $signed(sum_l1[6])  + $signed(sum_l1[7]);
+    assign sum_l2[4] = $signed(sum_l1[8])  + $signed(sum_l1[9]);
+    assign sum_l2[5] = $signed(sum_l1[10]) + $signed(sum_l1[11]);
+    assign sum_l2[6] = $signed(sum_l1[12]);
+
+    wire signed [18:0] sum_l3 [0:3];
+    assign sum_l3[0] = $signed(sum_l2[0]) + $signed(sum_l2[1]);
+    assign sum_l3[1] = $signed(sum_l2[2]) + $signed(sum_l2[3]);
+    assign sum_l3[2] = $signed(sum_l2[4]) + $signed(sum_l2[5]);
+    assign sum_l3[3] = $signed(sum_l2[6]);
+
+    wire signed [19:0] sum_l4 [0:1];
+    assign sum_l4[0] = $signed(sum_l3[0]) + $signed(sum_l3[1]);
+    assign sum_l4[1] = $signed(sum_l3[2]) + $signed(sum_l3[3]);
+
+    wire signed [20:0] sum_l5;
+    assign sum_l5 = $signed(sum_l4[0]) + $signed(sum_l4[1]);
+
+    // Add bias
+    wire signed [23:0] bias_scaled = $signed({{16{bias_in[7]}}, bias_in}) << FRAC_BITS;
+    wire signed [23:0] acc = $signed({{3{sum_l5[20]}}, sum_l5}) + bias_scaled;
+
+    // Scale and saturate
     wire signed [23:0] scaled_acc = acc >>> FRAC_BITS;
 
     wire signed [7:0] saturated;
@@ -38,44 +79,15 @@ module conv_5x5 #(
 
     always @(posedge clk) begin
         if (rst) begin
-            state <= STATE_IDLE;
-            count <= 5'd0;
-            acc <= 24'sd0;
-            done <= 1'b0;
+            valid_out <= 1'b0;
             data_out <= 8'sd0;
             raw_sum <= 24'sd0;
         end else begin
-            case (state)
-                STATE_IDLE: begin
-                    done <= 1'b0;
-                    if (start) begin
-                        acc   <= 24'sd0;
-                        count <= 5'd0;
-                        state <= STATE_ACCUMULATE;
-                    end
-                end
-
-                STATE_ACCUMULATE: begin
-                    acc   <= acc + product;
-                    count <= count + 5'd1;
-                    if (count == 5'd24)
-                        state <= STATE_BIAS;
-                end
-
-                STATE_BIAS: begin
-                    acc   <= acc + bias_scaled;
-                    state <= STATE_DONE;
-                end
-
-                STATE_DONE: begin
-                    data_out <= saturated;
-                    raw_sum  <= acc;
-                    done     <= 1'b1;
-                    state    <= STATE_IDLE;
-                end
-
-                default: state <= STATE_IDLE;
-            endcase
+            valid_out <= valid_in;
+            if (valid_in) begin
+                data_out <= saturated;
+                raw_sum <= acc;
+            end
         end
     end
 
