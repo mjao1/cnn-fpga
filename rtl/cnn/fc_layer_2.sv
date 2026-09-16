@@ -133,8 +133,9 @@ module fc_layer_2 #(
 
         if (input_new) begin
             valid_count_n = valid_count + 1;
-            if (valid_count == IN_FEATURES - 1)
+            if (valid_count == IN_FEATURES - 1) begin
                 process_ready_n = 1'b1;
+            end
         end
 
         case (state)

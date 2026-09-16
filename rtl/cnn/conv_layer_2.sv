@@ -342,10 +342,11 @@ module conv_layer_2 #(
         if (valid_o) begin
             if (x_o == OUT_WIDTH-1) begin
                 x_o_n = 8'd0;
-                if (y_o == OUT_HEIGHT-1)
+                if (y_o == OUT_HEIGHT-1) begin
                     y_o_n = 8'd0;
-                else
+                end else begin
                     y_o_n = y_o + 8'd1;
+                end
             end else begin
                 x_o_n = x_o + 8'd1;
             end
@@ -357,10 +358,11 @@ module conv_layer_2 #(
         end
 
         if (lb_we && (x_i == MAP_WIDTH-1)) begin
-            if (wr_row_idx == KERNEL_SIZE-1)
+            if (wr_row_idx == KERNEL_SIZE-1) begin
                 wr_row_idx_n = 3'd0;
-            else
+            end else begin
                 wr_row_idx_n = wr_row_idx + 3'd1;
+            end
         end
 
         if (relu_valid_out[0]) begin

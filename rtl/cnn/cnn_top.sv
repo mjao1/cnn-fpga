@@ -331,15 +331,17 @@ module cnn_top #(
         // Always capture pool1 outputs when valid
         if (pool1_valid_out && !pool1_buffer_complete) begin
             pool1_buffer_count_n = pool1_buffer_count + 8'd1;
-            if (pool1_buffer_count == 8'd143)
+            if (pool1_buffer_count == 8'd143) begin
                 pool1_buffer_complete_n = 1'b1;
+            end
         end
 
         // Always capture pool2 outputs when valid
         if (pool2_valid_out && !pool2_complete) begin
             pool2_valid_count_n = pool2_valid_count + 5'd1;
-            if (pool2_valid_count == 5'd15)
+            if (pool2_valid_count == 5'd15) begin
                 pool2_complete_n = 1'b1;
+            end
         end
 
         case (state)
@@ -394,8 +396,9 @@ module cnn_top #(
                     conv1_x_in_n = {4'b0000, conv1_rd_x};
                     conv1_y_in_n = {4'b0000, conv1_rd_y};
                 end else begin
-                    if (conv1_valid_in && conv1_busy)
+                    if (conv1_valid_in && conv1_busy) begin
                         conv1_valid_in_n = conv1_valid_in;
+                    end
                     if (pool1_buffer_complete && conv2_ready) begin
                         conv2_count_n = 6'd0;
                         conv2_feed_x_n = 8'd0;
@@ -417,8 +420,9 @@ module cnn_top #(
                 end else if (!conv2_busy && conv2_feed_y < 8'd12 && conv2_feed_x < 8'd12) begin
                     conv2_feed_valid_n = 1'b1;
                 end else begin
-                    if (conv2_feed_valid && conv2_busy)
+                    if (conv2_feed_valid && conv2_busy) begin
                         conv2_feed_valid_n = conv2_feed_valid;
+                    end
                 end
 
                 if (conv2_valid_out && conv2_count < 6'd63) begin
@@ -453,12 +457,13 @@ module cnn_top #(
             end
 
             FIND_MAX: begin
-                if (max_scan_idx == 4'd0)
+                if (max_scan_idx == 4'd0) begin
                     max_scan_idx_n = 4'd1;
-                else if (max_scan_idx < NUM_CLASSES)
+                end else if (max_scan_idx < NUM_CLASSES) begin
                     max_scan_idx_n = max_scan_idx + 4'd1;
-                else
+                end else begin
                     state_n = DONE;
+                end
             end
 
             DONE: begin

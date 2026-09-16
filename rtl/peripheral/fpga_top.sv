@@ -125,8 +125,9 @@ module fpga_top #(
             end
 
             INFERENCE: begin
-                if (done)
+                if (done) begin
                     state_n = DONE;
+                end
             end
 
             DONE: begin
@@ -173,8 +174,9 @@ module fpga_top #(
             pixel_count <= pixel_count_n;
             cnn_start <= cnn_start_n;
             frame_ack <= frame_ack_n;
-            if (pixel_valid_n)
+            if (pixel_valid_n) begin
                 pixel_data <= ram_rdata;
+            end
         end
     end
 

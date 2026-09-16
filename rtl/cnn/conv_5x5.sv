@@ -70,8 +70,9 @@ module conv_5x5 #(
             STATE_ACCUMULATE: begin
                 acc_n   = acc + product;
                 count_n = count + 5'd1;
-                if (count == 5'd24)
+                if (count == 5'd24) begin
                     state_n = STATE_BIAS;
+                end
             end
 
             STATE_BIAS: begin

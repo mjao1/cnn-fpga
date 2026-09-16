@@ -68,10 +68,11 @@ module uart_rx #(
             ST_DATA: begin
                 if (tim == BAUD_DIV - 1) begin
                     tim_n = {TIM_W{1'b0}};
-                    if (bit_idx == 3'd7)
+                    if (bit_idx == 3'd7) begin
                         state_n = ST_STOP;
-                    else
+                    end else begin
                         bit_idx_n = bit_idx + 1'b1;
+                    end
                 end else begin
                     tim_n = tim + 1'b1;
                 end
@@ -115,8 +116,9 @@ module uart_rx #(
             tim     <= tim_n;
             bit_idx <= bit_idx_n;
             valid_o <= valid_o_n;
-            if (sample_bit)
+            if (sample_bit) begin
                 data_o[bit_idx] <= rx_sync;
+            end
         end
     end
 

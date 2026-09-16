@@ -42,10 +42,11 @@ module uart_image_loader #(
                 wr_idx <= '0;
             end else if (uart_valid && !frame_ready_o) begin
                 mem[wr_idx] <= uart_data;
-                if (wr_idx == IMG_BYTES - 1)
+                if (wr_idx == IMG_BYTES - 1) begin
                     frame_ready_o <= 1'b1;
-                else
+                end else begin
                     wr_idx <= wr_idx + 1'b1;
+                end
             end
         end
     end

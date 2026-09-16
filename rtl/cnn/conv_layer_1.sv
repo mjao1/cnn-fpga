@@ -287,17 +287,19 @@ module conv_layer_1 #(
             if (ser_step == 6'd28) begin
                 serial_busy_n = 1'b0;
                 ser_step_n = 6'd0;
-            end else
+            end else begin
                 ser_step_n = ser_step + 6'd1;
+            end
         end
 
         if (valid_o) begin
             if (x_o == OUT_WIDTH - 1) begin
                 x_o_n = 9'd0;
-                if (y_o == OUT_HEIGHT - 1)
+                if (y_o == OUT_HEIGHT - 1) begin
                     y_o_n = 9'd0;
-                else
+                end else begin
                     y_o_n = y_o + 9'd1;
+                end
             end else begin
                 x_o_n = x_o + 9'd1;
             end
@@ -313,10 +315,11 @@ module conv_layer_1 #(
         end
 
         if (valid_i && (x_i == IMG_WIDTH - 1)) begin
-            if (wr_row_idx == KERNEL_SIZE-1)
+            if (wr_row_idx == KERNEL_SIZE-1) begin
                 wr_row_idx_n = 3'd0;
-            else
+            end else begin
                 wr_row_idx_n = wr_row_idx + 3'd1;
+            end
         end
 
         if (window_form) begin
