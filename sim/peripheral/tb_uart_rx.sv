@@ -15,11 +15,11 @@ module tb_uart_rx;
     uart_rx #(
         .BAUD_DIV(BAUD_DIV)
     ) dut (
-        .clk(clk),
-        .rst(rst),
-        .rx(rx),
-        .data(data),
-        .valid(valid)
+        .clk_i(clk),
+        .rst_i(rst),
+        .rx_i(rx),
+        .data_o(data),
+        .valid_o(valid)
     );
 
     initial begin

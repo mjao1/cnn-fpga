@@ -5,13 +5,13 @@ module uart_image_loader #(
     parameter int unsigned ADDR_W = (IMG_BYTES <= 1) ? 1 : $clog2(IMG_BYTES),
     parameter int unsigned BAUD_DIV = 868
 )(
-    input logic clk,
-    input logic rst,
-    input logic rx,
-    output logic frame_ready,
-    input logic frame_ack,
-    output logic [7:0] ram_rdata,
-    input logic [ADDR_W-1:0] ram_raddr
+    input  logic              clk_i,
+    input  logic              rst_i,
+    input  logic              rx_i,
+    input  logic              frame_ack_i,
+    input  logic [ADDR_W-1:0] ram_raddr_i,
+    output logic              frame_ready_o,
+    output logic [7:0]        ram_rdata_o
 );
 
     logic [7:0] mem [0:IMG_BYTES-1];
@@ -23,27 +23,27 @@ module uart_image_loader #(
     uart_rx #(
         .BAUD_DIV(BAUD_DIV)
     ) u_uart_rx (
-        .clk(clk),
-        .rst(rst),
-        .rx(rx),
-        .data(uart_data),
-        .valid(uart_valid)
+        .clk_i(clk_i),
+        .rst_i(rst_i),
+        .rx_i(rx_i),
+        .data_o(uart_data),
+        .valid_o(uart_valid)
     );
 
-    assign ram_rdata = mem[ram_raddr];
+    assign ram_rdata_o = mem[ram_raddr_i];
 
-    always_ff @(posedge clk) begin
-        if (rst) begin
+    always_ff @(posedge clk_i) begin
+        if (rst_i) begin
             wr_idx <= '0;
-            frame_ready <= 1'b0;
+            frame_ready_o <= 1'b0;
         end else begin
-            if (frame_ack) begin
-                frame_ready <= 1'b0;
+            if (frame_ack_i) begin
+                frame_ready_o <= 1'b0;
                 wr_idx <= '0;
-            end else if (uart_valid && !frame_ready) begin
+            end else if (uart_valid && !frame_ready_o) begin
                 mem[wr_idx] <= uart_data;
                 if (wr_idx == IMG_BYTES - 1)
-                    frame_ready <= 1'b1;
+                    frame_ready_o <= 1'b1;
                 else
                     wr_idx <= wr_idx + 1'b1;
             end

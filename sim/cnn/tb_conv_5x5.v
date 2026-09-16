@@ -25,14 +25,14 @@ module tb_conv_5x5();
     conv_5x5 #(
         .FRAC_BITS(FRAC_BITS)
     ) dut (
-        .clk(clk),
-        .rst(rst),
-        .start(start),
-        .data_in(data_in),
-        .weight_in(weight_in),
-        .done(done),
-        .data_out(data_out),
-        .raw_sum(raw_sum)
+        .clk_i(clk),
+        .rst_i(rst),
+        .start_i(start),
+        .data_i(data_in),
+        .weight_i(weight_in),
+        .done_o(done),
+        .data_o(data_out),
+        .raw_sum_o(raw_sum)
     );
 
     initial begin

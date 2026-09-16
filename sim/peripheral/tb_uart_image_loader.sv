@@ -20,13 +20,13 @@ module tb_uart_image_loader;
         .IMG_BYTES(IMG_BYTES),
         .BAUD_DIV(BAUD_DIV)
     ) dut (
-        .clk(clk),
-        .rst(rst),
-        .rx(rx),
-        .frame_ready(frame_ready),
-        .frame_ack(frame_ack),
-        .ram_rdata(ram_rdata),
-        .ram_raddr(ram_raddr)
+        .clk_i(clk),
+        .rst_i(rst),
+        .rx_i(rx),
+        .frame_ready_o(frame_ready),
+        .frame_ack_i(frame_ack),
+        .ram_rdata_o(ram_rdata),
+        .ram_raddr_i(ram_raddr)
     );
 
     initial begin
