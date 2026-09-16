@@ -81,16 +81,16 @@ module tb_cnn_top;
         .IMG_HEIGHT(IMG_HEIGHT),
         .DATA_WIDTH(DATA_WIDTH)
     ) dut (
-        .clk(clk),
-        .rst(rst),
-        .start(start),
-        .pixel_data(pixel_data),
-        .pixel_valid(pixel_valid),
-        .pixel_row_in(pixel_row),
-        .pixel_col_in(pixel_col),
-        .done(done),
-        .pred_digit(pred_digit),
-        .pred_confidence(pred_confidence)
+        .clk_i(clk),
+        .rst_i(rst),
+        .start_i(start),
+        .pixel_data_i(pixel_data),
+        .pixel_valid_i(pixel_valid),
+        .pixel_row_i(pixel_row),
+        .pixel_col_i(pixel_col),
+        .done_o(done),
+        .pred_digit_o(pred_digit),
+        .pred_confidence_o(pred_confidence)
     );
     
     initial begin

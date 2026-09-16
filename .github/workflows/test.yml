@@ -19,31 +19,37 @@ jobs:
 
       - name: conv_5x5
         run: |
-          iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/conv_5x5.v
+          iverilog -g2012 -o sim/cnn/tb_conv_5x5.vvp sim/cnn/tb_conv_5x5.v rtl/cnn/*.v rtl/cnn/*.sv
           vvp sim/cnn/tb_conv_5x5.vvp | tee test_output.log
           ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
 
       - name: relu
         run: |
-          iverilog -g2012 -o sim/cnn/tb_relu.vvp sim/cnn/tb_relu.v rtl/cnn/relu.v
+          iverilog -g2012 -o sim/cnn/tb_relu.vvp sim/cnn/tb_relu.v rtl/cnn/*.v rtl/cnn/*.sv
           vvp sim/cnn/tb_relu.vvp | tee test_output.log
+          ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
+
+      - name: max_pool_2x2
+        run: |
+          iverilog -g2012 -o sim/cnn/tb_max_pool_2x2.vvp sim/cnn/tb_max_pool_2x2.v rtl/cnn/*.v rtl/cnn/*.sv
+          vvp sim/cnn/tb_max_pool_2x2.vvp | tee test_output.log
           ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
 
       - name: flatten
         run: |
-          iverilog -g2012 -o sim/cnn/tb_flatten.vvp sim/cnn/tb_flatten.sv rtl/cnn/flatten.v
+          iverilog -g2012 -o sim/cnn/tb_flatten.vvp sim/cnn/tb_flatten.sv rtl/cnn/*.v rtl/cnn/*.sv
           vvp sim/cnn/tb_flatten.vvp | tee test_output.log
           ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
 
       - name: pool_layer_1
         run: |
-          iverilog -g2012 -o sim/cnn/tb_pool_layer_1.vvp sim/cnn/tb_pool_layer_1.sv rtl/cnn/pool_layer_1.v rtl/cnn/max_pool_2x2.v
+          iverilog -g2012 -o sim/cnn/tb_pool_layer_1.vvp sim/cnn/tb_pool_layer_1.sv rtl/cnn/*.v rtl/cnn/*.sv
           vvp sim/cnn/tb_pool_layer_1.vvp | tee test_output.log
           ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
 
       - name: pool_layer_2
         run: |
-          iverilog -g2012 -o sim/cnn/tb_pool_layer_2.vvp sim/cnn/tb_pool_layer_2.sv rtl/cnn/pool_layer_2.v rtl/cnn/max_pool_2x2.v
+          iverilog -g2012 -o sim/cnn/tb_pool_layer_2.vvp sim/cnn/tb_pool_layer_2.sv rtl/cnn/*.v rtl/cnn/*.sv
           vvp sim/cnn/tb_pool_layer_2.vvp | tee test_output.log
           ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
 
@@ -87,4 +93,16 @@ jobs:
         run: |
           iverilog -g2012 -o sim/cnn/tb_cnn_top.vvp sim/cnn/tb_cnn_top.sv rtl/cnn/*.v rtl/cnn/*.sv
           vvp sim/cnn/tb_cnn_top.vvp | tee test_output.log
+          ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
+
+      - name: uart_rx
+        run: |
+          iverilog -g2012 -o sim/peripheral/tb_uart_rx.vvp sim/peripheral/tb_uart_rx.sv rtl/cnn/*.v rtl/cnn/*.sv rtl/peripheral/*.v rtl/peripheral/*.sv
+          vvp sim/peripheral/tb_uart_rx.vvp | tee test_output.log
+          ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'
+
+      - name: uart_image_loader
+        run: |
+          iverilog -g2012 -o sim/peripheral/tb_uart_image_loader.vvp sim/peripheral/tb_uart_image_loader.sv rtl/cnn/*.v rtl/cnn/*.sv rtl/peripheral/*.v rtl/peripheral/*.sv
+          vvp sim/peripheral/tb_uart_image_loader.vvp | tee test_output.log
           ! grep -v 'FAILED: 0' test_output.log | grep -q 'FAIL\\|ERROR\\|MISMATCH\\|Mismatches: [1-9]'

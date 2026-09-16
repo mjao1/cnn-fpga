@@ -43,16 +43,16 @@ module tb_fc_layers;
         .FC3_OUT_FEATURES(FC3_OUT_FEATURES),
         .DATA_WIDTH(DATA_WIDTH)
     ) dut (
-        .clk(clk),
-        .rst(rst),
-        .start(start),
-        .valid_in(valid_in),
-        .data_in(data_in),
-        .addr_in(addr_in),
-        .valid_out(valid_out),
-        .data_out(data_out),
-        .digit_idx(digit_idx),
-        .done_out(done_out)
+        .clk_i(clk),
+        .rst_i(rst),
+        .start_i(start),
+        .valid_i(valid_in),
+        .data_i(data_in),
+        .addr_i(addr_in),
+        .valid_o(valid_out),
+        .data_o(data_out),
+        .digit_idx_o(digit_idx),
+        .done_o(done_out)
     );
     
     initial begin

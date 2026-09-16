@@ -47,16 +47,16 @@ module tb_pool_layer_1;
         .NUM_CHANNELS(NUM_CHANNELS),
         .DATA_WIDTH(DATA_WIDTH)
     ) uut (
-        .clk(clk),
-        .rst(rst),
-        .valid_in(valid_in),
-        .data_in(data_in),
-        .x_in(x_in),
-        .y_in(y_in),
-        .valid_out(valid_out),
-        .data_out(data_out),
-        .x_out(x_out),
-        .y_out(y_out)
+        .clk_i(clk),
+        .rst_i(rst),
+        .valid_i(valid_in),
+        .data_i(data_in),
+        .x_i(x_in),
+        .y_i(y_in),
+        .valid_o(valid_out),
+        .data_o(data_out),
+        .x_o(x_out),
+        .y_o(y_out)
     );
     
     initial begin

@@ -31,15 +31,15 @@ module tb_fc_layer_1;
         .OUT_FEATURES(OUT_FEATURES),
         .DATA_WIDTH(DATA_WIDTH)
     ) dut (
-        .clk(clk),
-        .rst(rst),
-        .valid_in(valid_in),
-        .data_in(data_in),
-        .addr_in(addr_in),
-        .valid_out(valid_out),
-        .data_out(data_out),
-        .neuron_idx(neuron_idx),
-        .done_out(done_out)
+        .clk_i(clk),
+        .rst_i(rst),
+        .valid_i(valid_in),
+        .data_i(data_in),
+        .addr_i(addr_in),
+        .valid_o(valid_out),
+        .data_o(data_out),
+        .neuron_idx_o(neuron_idx),
+        .done_o(done_out)
     );
     
     initial begin

@@ -64,22 +64,22 @@ module tb_conv_layer_1;
         .DATA_WIDTH(DATA_WIDTH),
         .FRAC_BITS(FRAC_BITS)
     ) uut (
-        .clk(clk),
-        .rst(rst),
-        .valid_in(valid_in),
-        .data_in(data_in),
-        .x_in(x_in),
-        .y_in(y_in),
-        .valid_out(valid_out),
-        .data_out_0(data_out_0),
-        .data_out_1(data_out_1),
-        .data_out_2(data_out_2),
-        .data_out_3(data_out_3),
-        .data_out_4(data_out_4),
-        .data_out_5(data_out_5),
-        .x_out(x_out),
-        .y_out(y_out),
-        .busy(busy)
+        .clk_i(clk),
+        .rst_i(rst),
+        .valid_i(valid_in),
+        .data_i(data_in),
+        .x_i(x_in),
+        .y_i(y_in),
+        .valid_o(valid_out),
+        .data_0_o(data_out_0),
+        .data_1_o(data_out_1),
+        .data_2_o(data_out_2),
+        .data_3_o(data_out_3),
+        .data_4_o(data_out_4),
+        .data_5_o(data_out_5),
+        .x_o(x_out),
+        .y_o(y_out),
+        .busy_o(busy)
     );
     
     assign state_debug = uut.state;
