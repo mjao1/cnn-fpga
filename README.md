@@ -4,6 +4,8 @@
 
 A LeNet-5 Convolutional Neural Network (CNN) hardware accelerator designed in synthesizable RTL Verilog/SystemVerilog and implemented on an A7-100T FPGA. The CNN is trained on the MNIST handwritten digit dataset and optimized for hardware inference, achieving ∼98.2% inference accuracy with uniform Q1.7 fixed-point quantization.
 
+https://github.com/user-attachments/assets/3c0c750f-9bce-46e3-af59-f68ef038106b
+
 <p align="center">
   <img src="assets/lenet5-diagram.png" width="100%" alt="LeNet-5 Architecture">
 </p>
